@@ -1,0 +1,655 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { useYouTubePlayer } from "@/providers/youtube-player-provider";
+import { 
+  subscribeToVideoEvents,
+  updateParticipantTime,
+  getVideoState
+} from "@/services/realtime/sessions";
+import { VideoEvent } from "@/types/session";
+import debounce from "lodash/debounce";
+import { Timestamp } from "firebase/firestore";
+import { toast } from "sonner";
+// import { setUserCurrentVideo, clearUserCurrentVideo } from "@/services/users";
+
+interface YouTubePlayerSyncProps {
+  sessionId: string;
+  userId: string;
+  isSessionModerator?: boolean;
+}
+
+// Helper function to safely get timestamp in milliseconds
+function getTimestampMillis(timestamp: any): number {
+  // Handle Firebase Realtime DB timestamp format (which is different from Firestore)
+  if (timestamp && typeof timestamp === 'object') {
+    // If it's a Firestore Timestamp object
+    if (timestamp.toMillis && typeof timestamp.toMillis === 'function') {
+      return timestamp.toMillis();
+    }
+    if (timestamp.seconds !== undefined && timestamp.nanoseconds !== undefined) {
+      return (timestamp.seconds * 1000) + (timestamp.nanoseconds / 1000000);
+    }
+    // If it's a standard date object
+    if (timestamp instanceof Date) {
+      return timestamp.getTime();
+    }
+  }
+  // Fallback to current time if invalid
+  return Date.now();
+}
+
+// Helper function to ensure an event has valid timestamp
+function normalizeEvent(event: any): VideoEvent {
+  // Create a copy of the event to avoid modifying the original
+  const normalized = { ...event };
+  
+  // Ensure timestamp is a proper object
+  if (typeof normalized.timestamp !== 'object' || !normalized.timestamp) {
+    console.warn('Timestamp is not an object, replacing with current time', normalized.timestamp);
+    normalized.timestamp = Timestamp.now();
+  } 
+  // Add toMillis method if it doesn't exist
+  else if (!normalized.timestamp.toMillis) {
+    const originalTimestamp = normalized.timestamp;
+    normalized.timestamp = {
+      ...originalTimestamp,
+      toMillis: () => {
+        if (originalTimestamp.seconds !== undefined) {
+          return (originalTimestamp.seconds * 1000) + 
+                 ((originalTimestamp.nanoseconds || 0) / 1000000);
+        }
+        return Date.now();
+      }
+    };
+  }
+  
+  return normalized as VideoEvent;
+}
+
+// Add a new helper for throttling events
+function throttle<T extends (...args: any[]) => any>(
+  func: T,
+  limit: number
+): (...args: Parameters<T>) => void {
+  let inThrottle = false;
+  let lastArgs: Parameters<T> | null = null;
+  
+  return function(this: any, ...args: Parameters<T>): void {
+    if (!inThrottle) {
+      func.apply(this, args);
+      inThrottle = true;
+      lastArgs = null;
+      
+      setTimeout(() => {
+        inThrottle = false;
+        if (lastArgs) {
+          func.apply(this, lastArgs);
+        }
+      }, limit);
+    } else {
+      lastArgs = args;
+    }
+  };
+}
+
+// Video control functions that work with the updated architecture
+async function playVideo(sessionId: string, userId: string, currentTime: number): Promise<void> {
+  try {
+    // Direct realtime DB access for video events (no firestore dependency)
+    const { addVideoEvent } = await import("@/services/realtime/sessions");
+    await addVideoEvent(sessionId, userId, 'play', currentTime);
+  } catch (error) {
+    console.error("Error sending play event:", error);
+    throw error;
+  }
+}
+
+async function pauseVideo(sessionId: string, userId: string, currentTime: number): Promise<void> {
+  try {
+    // Direct realtime DB access for video events (no firestore dependency)
+    const { addVideoEvent } = await import("@/services/realtime/sessions");
+    await addVideoEvent(sessionId, userId, 'pause', currentTime);
+  } catch (error) {
+    console.error("Error sending pause event:", error);
+    throw error;
+  }
+}
+
+async function seekVideo(
+  sessionId: string, 
+  userId: string, 
+  currentTime: number, 
+  seekTime: number
+): Promise<void> {
+  try {
+    // Direct realtime DB access for video events (no firestore dependency)
+    const { addVideoEvent } = await import("@/services/realtime/sessions");
+    await addVideoEvent(sessionId, userId, 'seek', currentTime, seekTime);
+  } catch (error) {
+    console.error("Error sending seek event:", error);
+    throw error;
+  }
+}
+
+// Direct access to Realtime DB for setting video ID
+async function setVideoId(sessionId: string, videoId: string): Promise<void> {
+  try {
+    // Direct realtime DB access (no firestore dependency)
+    const { setVideoId: setRealtimeVideoId } = await import("@/services/realtime/sessions");
+    await setRealtimeVideoId(sessionId, videoId);
+  } catch (error) {
+    console.error("Error setting video ID:", error);
+    throw error;
+  }
+}
+
+export function YouTubePlayerSync({ 
+  sessionId, 
+  userId, 
+  isSessionModerator = false 
+}: YouTubePlayerSyncProps) {
+  const { 
+    player, 
+    isPlaying, 
+    currentTime, 
+    videoId, 
+    seekTo 
+  } = useYouTubePlayer();
+  
+  const [videoEvents, setVideoEvents] = useState<VideoEvent[]>([]);
+  const lastEventRef = useRef<VideoEvent | null>(null);
+  const lastUserActionRef = useRef<{type: string, time: number} | null>(null);
+  const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [syncErrors, setSyncErrors] = useState<string[]>([]);
+  const remotePlayerStateRef = useRef<'playing' | 'paused' | null>(null);
+  const isHandlingRemoteEventRef = useRef(false);
+  const pendingLocalEventsRef = useRef<{type: string, time: number}[]>([]);
+  const currentVideoIdRef = useRef<string | null>(null);
+  const hasInitialSyncRef = useRef<boolean>(false);
+  const [participantTimes, setParticipantTimes] = useState<{[userId: string]: number}>({});
+
+  // Create throttled versions of functions to avoid flooding the database
+  const throttledPlayVideo = useRef(throttle(playVideo, 500)).current;
+  const throttledPauseVideo = useRef(throttle(pauseVideo, 500)).current;
+  const throttledSeekVideo = useRef(throttle(seekVideo, 500)).current;
+  
+  const debouncedUpdateTime = useRef(
+    debounce(updateParticipantTime, 2000)
+  ).current;
+  
+  // When component mounts or videoId/sessionId changes, set up DB listeners
+  useEffect(() => {
+    if (!sessionId) return;
+
+    console.log(`Setting up sync for session ${sessionId} with video ${videoId}`);
+    
+    // Set the video ID in the database if we have one
+    if (videoId && sessionId) {
+      setVideoId(sessionId, videoId).catch((err) => {
+        setSyncErrors(prev => [
+          ...prev,
+          `Failed to set video ID: ${err.message}`
+        ]);
+      });
+    }
+    
+    // Set initial video reference
+    currentVideoIdRef.current = videoId || null;
+    
+    // Subscribe to video events from the database
+    const unsubscribe = subscribeToVideoEvents(sessionId, (events) => {
+      try {
+        // Process and normalize events to ensure they have valid timestamps
+        const normalizedEvents = events.map(normalizeEvent);
+        console.log(`Received ${normalizedEvents.length} video events`);
+        setVideoEvents(normalizedEvents);
+        
+        // Also extract participant times from video state to use for initial sync
+        fetchParticipantTimes(sessionId)
+          .then(times => {
+            if (times) {
+              setParticipantTimes(times);
+            }
+          })
+          .catch(err => console.error("Error fetching participant times:", err));
+      } catch (error) {
+        console.error("Error processing video events:", error);
+        setSyncErrors(prev => [...prev, `Error processing events: ${error}`]);
+      }
+    });
+    
+    // Start interval for regular time updates
+    syncIntervalRef.current = setInterval(() => {
+      if (player && isPlaying && typeof player.getCurrentTime === 'function') {
+        try {
+          const currentPlayerTime = player.getCurrentTime();
+          debouncedUpdateTime(sessionId, userId, currentPlayerTime);
+        } catch (error) {
+          console.error("Error in time sync interval:", error);
+        }
+      }
+    }, 5000);
+    
+    return () => {
+      unsubscribe();
+      debouncedUpdateTime.cancel();
+      if (syncIntervalRef.current) {
+        clearInterval(syncIntervalRef.current);
+      }
+    };
+  }, [
+    sessionId,
+    userId,
+    player,
+    videoId,
+    isPlaying,
+    debouncedUpdateTime
+  ]);
+  
+  // When the component mounts or videoId changes, update the user's current video in Firestore
+  useEffect(() => {
+    if (!videoId || !userId || !sessionId) return;
+    
+    // Clean up when component unmounts or videoId changes
+    return () => {
+      // // Only clear if we're unmounting (not if videoId is just changing)
+      // if (typeof window !== 'undefined' && window.location.pathname !== `/${sessionId}/yt`) {
+      //   clearUserCurrentVideo(userId)
+      //     .catch(error => console.error("Error clearing user's current video:", error));
+      // }
+    };
+  }, [sessionId, userId, videoId]);
+
+  // Process incoming events from other users
+  useEffect(() => {
+    if (!player || !videoEvents.length || !sessionId) return;
+    
+    try {
+      // Find the latest event that wasn't created by the current user
+      const externalEvents = videoEvents.filter(event => event.userId !== userId);
+      if (externalEvents.length === 0) {
+        return;
+      }
+      
+      // Sort events by timestamp (newest first)
+      const sortedEvents = externalEvents.sort((a, b) => {
+        try {
+          const timeA = getTimestampMillis(a.timestamp);
+          const timeB = getTimestampMillis(b.timestamp);
+          return timeB - timeA; // Descending order (newest first)
+        } catch (error) {
+          console.error("Error sorting events:", error);
+          return 0;
+        }
+      });
+      
+      const latestExternalEvent = sortedEvents[0];
+      
+      if (!latestExternalEvent) return;
+      
+      // Skip if we've already processed this exact event
+      if (lastEventRef.current?.id === latestExternalEvent.id) {
+        return;
+      }
+      
+      // Store this event as processed
+      lastEventRef.current = latestExternalEvent;
+      
+      // Apply the event based on its type
+      if (typeof player.getCurrentTime !== 'function') {
+        console.error("Player missing getCurrentTime method");
+        return;
+      }
+      
+      const currentPlayerTime = player.getCurrentTime();
+      const eventCurrentTime = 'currentTime' in latestExternalEvent ? latestExternalEvent.currentTime : 0;
+      const timeDifference = Math.abs(currentPlayerTime - eventCurrentTime);
+      
+      console.log(`Sync: Received ${latestExternalEvent.type} event from ${latestExternalEvent.userId}`);
+      
+      // Mark that we're handling a remote event to avoid feedback loops
+      isHandlingRemoteEventRef.current = true;
+      
+      switch (latestExternalEvent.type) {
+        case "play":
+          // Update our tracked remote player state
+          remotePlayerStateRef.current = 'playing';
+          
+          // Only play if we're not already playing
+          if (!isPlaying && typeof player.playVideo === 'function') {
+            console.log("Sync: Remote play triggered");
+            player.playVideo();
+          }
+          break;
+          
+        case "pause":
+          // Update our tracked remote player state
+          remotePlayerStateRef.current = 'paused';
+          
+          // Only pause if we're not already paused
+          if (isPlaying && typeof player.pauseVideo === 'function') {
+            console.log("Sync: Remote pause triggered");
+            player.pauseVideo();
+          }
+          break;
+          
+        case "seek":
+          // Only seek if difference is significant (>2 seconds)
+          if (timeDifference > 2) {
+            console.log(`Sync: Remote seek to ${latestExternalEvent.currentTime}`);
+            seekTo(latestExternalEvent.currentTime);
+          }
+          break;
+          
+        case "video_change":
+          if ('videoId' in latestExternalEvent) {
+            const newVideoId = latestExternalEvent.videoId;
+            console.log(`Sync: Remote video change to ${newVideoId}`);
+            
+            // Skip if this is our current video already
+            if (newVideoId === currentVideoIdRef.current) {
+              console.log("Video already playing, skipping change");
+              break;
+            }
+            
+            // Update our reference to prevent feedback loops
+            currentVideoIdRef.current = newVideoId;
+            
+            // If video is empty, we're clearing the video
+            if (!newVideoId) {
+              console.log("Clearing current video");
+              break;
+            }
+            
+            // Navigate to the video page with the new video ID
+            if (typeof window !== 'undefined') {
+              const currentUrl = new URL(window.location.href);
+              currentUrl.searchParams.set('v', newVideoId);
+              window.location.href = currentUrl.toString();
+            }
+          }
+          break;
+      }
+      
+      setTimeout(() => {
+        isHandlingRemoteEventRef.current = false;
+      }, 500);
+      
+      // Process any pending local events that were delayed
+      if (pendingLocalEventsRef.current.length > 0) {
+        const nextEvent = pendingLocalEventsRef.current.shift();
+        if (nextEvent && typeof player.getCurrentTime === 'function') {
+          const currentTime = player.getCurrentTime();
+          if (nextEvent.type === 'play') {
+            throttledPlayVideo(sessionId, userId, currentTime);
+          } else if (nextEvent.type === 'pause') {
+            throttledPauseVideo(sessionId, userId, currentTime);
+          }
+        }
+        
+        // Clear pending events older than 3 seconds
+        const now = Date.now();
+        pendingLocalEventsRef.current = pendingLocalEventsRef.current.filter(
+          event => now - event.time < 3000
+        );
+      }
+    } catch (error) {
+      console.error("Error processing sync events:", error);
+      setSyncErrors(prev => [
+        ...prev, 
+        `Error processing events: ${error}`
+      ]);
+      isHandlingRemoteEventRef.current = false;
+    }
+  }, [
+    videoEvents,
+    player,
+    isPlaying,
+    userId,
+    sessionId,
+    seekTo,
+    throttledPlayVideo,
+    throttledPauseVideo
+  ]);
+  
+  // Send local player state changes to db
+  useEffect(() => {
+    if (!player || !sessionId || !userId) return;
+    
+    const handlePlayStateChange = (isPlaying: boolean) => {
+      try {
+        const currentPlayerTime = player.getCurrentTime();
+        
+        // Don't send events if we're handling a remote event
+        if (isHandlingRemoteEventRef.current) {
+          return;
+        }
+        
+        // Don't send redundant events if remote state matches
+        if (
+          (isPlaying && remotePlayerStateRef.current === 'playing') || 
+          (!isPlaying && remotePlayerStateRef.current === 'paused')
+        ) {
+          console.log(`Skipping redundant ${isPlaying ? 'play' : 'pause'} event`);
+          return;
+        }
+        
+        // Track this local action
+        const eventType = isPlaying ? 'play' : 'pause';
+        lastUserActionRef.current = {
+          type: eventType,
+          time: Date.now()
+        };
+        
+        console.log(`Sending ${eventType} event at time ${currentPlayerTime}`);
+        
+        // Store this as a pending event or process immediately
+        if (isHandlingRemoteEventRef.current) {
+          pendingLocalEventsRef.current.push({
+            type: eventType,
+            time: Date.now()
+          });
+        } else {
+          if (isPlaying) {
+            throttledPlayVideo(sessionId, userId, currentPlayerTime);
+          } else {
+            throttledPauseVideo(sessionId, userId, currentPlayerTime);
+          }
+        }
+        
+        // Update the local tracking of remote state to match our action
+        remotePlayerStateRef.current = isPlaying ? 'playing' : 'paused';
+      } catch (error) {
+        console.error("Error handling play state change:", error);
+        setSyncErrors(prev => [
+          ...prev,
+          `Error handling playback: ${error}`
+        ]);
+      }
+    };
+    
+    // Listen for play/pause events from the YouTube iframe
+    if (typeof player.getIframe !== 'function') {
+      console.warn("Player missing getIframe method");
+      return;
+    }
+    
+    const iframe = player.getIframe();
+    if (iframe) {
+      const handleMessage = (event: MessageEvent) => {
+        // Check if message is from YouTube player
+        if (event.source !== iframe.contentWindow) return;
+        
+        try {
+          const data = JSON.parse(event.data);
+          if (data.event === 'onStateChange') {
+            const playerState = data.info;
+            
+            // YouTube Player States: -1 (unstarted), 0 (ended), 1 (playing), 2 (paused), 3 (buffering), 5 (cued)
+            if (playerState === 1) { // Playing
+              handlePlayStateChange(true);
+            } else if (playerState === 2) { // Paused
+              handlePlayStateChange(false);
+            }
+          }
+        } catch (e) {
+          // Not a JSON message, ignore
+        }
+      };
+      
+      window.addEventListener('message', handleMessage);
+      return () => window.removeEventListener('message', handleMessage);
+    }
+  }, [player, sessionId, userId, throttledPlayVideo, throttledPauseVideo]);
+
+  // Handle seeking
+  useEffect(() => {
+    if (!player || !sessionId || !userId) return;
+    
+    if (typeof player.getCurrentTime !== 'function') {
+      console.warn("Player missing getCurrentTime method for seek detection");
+      return;
+    }
+    
+    let lastTime = 0;
+    try {
+      lastTime = player.getCurrentTime();
+    } catch (error) {
+      console.error("Error getting initial time:", error);
+      return; // Exit if we can't get the initial time
+    }
+    
+    let checkingInterval: NodeJS.Timeout;
+    
+    const checkForSeek = () => {
+      if (!player || typeof player.getCurrentTime !== 'function') return;
+      
+      try {
+        const currentPlayerTime = player.getCurrentTime();
+        const timeDifference = Math.abs(currentPlayerTime - lastTime);
+        
+        // If time jumped more than 2 seconds and not due to normal playback
+        if (timeDifference > 2 && !isPlaying) {
+          // Record this action
+          lastUserActionRef.current = {
+            type: 'seek',
+            time: Date.now()
+          };
+          console.log(`Detected seek to ${currentPlayerTime}`);
+          
+          // Send the seek event to the database
+          throttledSeekVideo(sessionId, userId, currentPlayerTime, currentPlayerTime);
+        }
+        
+        // Update the last time for next comparison
+        lastTime = currentPlayerTime;
+      } catch (error) {
+        console.error("Error in seek detection:", error);
+      }
+    };
+    
+    // Check for seeks every 500ms
+    checkingInterval = setInterval(checkForSeek, 500);
+    
+    return () => clearInterval(checkingInterval);
+  }, [player, sessionId, userId, isPlaying]);
+
+  // For new members joining, sync their player to the most accurate time
+  useEffect(() => {
+    if (!player || !sessionId || !userId || !videoId || hasInitialSyncRef.current) return;
+    
+    if (Object.keys(participantTimes).length === 0) {
+      console.log("No participant times available yet for initial sync");
+      return;
+    }
+    
+    try {
+      // Find the most recent participant time (excluding our own)
+      const otherParticipantTimes = Object.entries(participantTimes)
+        .filter(([participantId]) => participantId !== userId)
+        .map(([participantId, data]) => ({
+          userId: participantId,
+          time: data.currentTime,
+          lastActive: new Date(data.lastActive.seconds * 1000)
+        }))
+        .sort((a, b) => b.lastActive.getTime() - a.lastActive.getTime());
+      
+      if (otherParticipantTimes.length === 0) {
+        console.log("No other participants to sync with");
+        hasInitialSyncRef.current = true;
+        return;
+      }
+      
+      // Use the most recently active participant's time
+      const { time: syncTime, userId: syncUserId } = otherParticipantTimes[0];
+      
+      if (syncTime !== undefined && syncTime > 0) {
+        console.log(`Initial sync: Jumping to time ${syncTime} from user ${syncUserId}`);
+        
+        // Add a small buffer to account for delay
+        const bufferedTime = syncTime + 0.5;
+        
+        // Seek to that time
+        if (typeof player.seekTo === 'function') {
+          player.seekTo(bufferedTime, true);
+          
+          // Update our local tracking after seeking
+          if (typeof player.getCurrentTime === 'function') {
+            debouncedUpdateTime(sessionId, userId, bufferedTime);
+          }
+          
+          // Show a toast notification for the user
+            toast.info(`Synced playback with other viewers`);
+          
+          // Mark that we've done the initial sync
+          hasInitialSyncRef.current = true;
+        }
+      } else {
+        console.log("No valid sync time found, starting from beginning");
+        hasInitialSyncRef.current = true;
+      }
+    } catch (error) {
+      console.error("Error during initial player sync:", error);
+      hasInitialSyncRef.current = true; // Prevent trying again
+    }
+  }, [participantTimes, player, sessionId, userId, videoId]);
+  
+  // If there are sync errors, we could show them for debugging
+  if (syncErrors.length > 0 && process.env.NODE_ENV === "development") {
+    return (
+      <div className="bg-red-50 p-2 rounded text-xs overflow-auto max-h-32">
+        <h4>Sync Errors:</h4>
+        <ul>
+          {syncErrors.map((error, i) => (
+            <li key={i}>{error}</li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+  
+  // This is a UI-less component for production
+  return null;
+}
+
+// Utility function to fetch participant times from the database
+async function fetchParticipantTimes(sessionId: string): Promise<{
+  [userId: string]: { currentTime: number; lastActive: Timestamp }
+} | null> {
+  if (!sessionId) return null;
+  
+  try {
+    // Import only when needed to avoid issues with circular dependencies
+    const { getVideoState } = await import('@/services/realtime/sessions');
+    const videoState = await getVideoState(sessionId);
+    
+    if (videoState?.participantTimes) {
+      return videoState.participantTimes;
+    }
+    return null;
+  } catch (error) {
+    console.error("Error fetching participant times:", error);
+    return null;
+  }
+}

@@ -1,0 +1,269 @@
+"use client";
+
+import React from "react";
+import { Slider } from "@workspace/ui/components/slider";
+import { Button } from "@workspace/ui/components/button";
+import {
+  Volume2,
+  VolumeX,
+  Pause,
+  Play,
+  SkipBack,
+  SkipForward,
+  Settings,
+  Maximize,
+  Minimize,
+} from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+} from "@workspace/ui/components/dropdown-menu";
+import { cn } from "@workspace/ui/lib/utils";
+import { 
+  useYouTubePlayer,
+  playbackSpeeds,
+} from "../providers/youtube-player-provider";
+
+// Component props interface
+interface YouTubePlayerProps {
+  videoId: string;
+  height?: number | string;
+  width?: number | string;
+}
+
+// Main player component (no longer wraps with provider)
+export default function YouTubePlayer({
+  videoId,
+  height = 400,
+  width = "100%",
+}: YouTubePlayerProps) {
+  const {
+    containerRef,
+    isPlaying,
+    currentTime,
+    duration,
+    volume,
+    isMuted,
+    isFullscreen,
+    showControls,
+    isBuffering,
+    showOverlay,
+    seekPercentage,
+    playbackSpeed,
+    togglePlay,
+    adjustVolume,
+    toggleMute,
+    skipForward,
+    skipBackward,
+    handleSeek,
+    toggleFullscreen,
+    formatTime,
+    setPlaybackSpeed
+  } = useYouTubePlayer();
+
+  // Add styles for fullscreen handling
+  React.useEffect(() => {
+    // Add a style element for the fullscreen CSS if it doesn't exist yet
+    if (!document.getElementById('youtube-player-styles')) {
+      const style = document.createElement('style');
+      style.id = 'youtube-player-styles';
+      style.textContent = `
+        .youtube-player-fullscreen {
+          position: fixed !important;
+          top: 0 !important;
+          left: 0 !important;
+          right: 0 !important;
+          bottom: 0 !important;
+          width: 100vw !important;
+          height: 100vh !important;
+          z-index: 9999 !important;
+          background: #000 !important;
+        }
+        .youtube-player-fullscreen iframe,
+        .youtube-player-fullscreen #yt-player-${videoId} {
+          width: 100% !important;
+          height: 100% !important;
+        }
+        :fullscreen .youtube-player-iframe {
+          width: 100% !important;
+          height: 100% !important;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+    
+    return () => {
+      // Clean up when component unmounts (optional)
+      const styleElement = document.getElementById('youtube-player-styles');
+      if (styleElement && videoId === 'cleanup') { // Only remove on final cleanup
+        styleElement.remove();
+      }
+    };
+  }, [videoId]);
+
+  return (
+    <div style={{ height: typeof height === "number" ? `${height}px` : height }}>
+      <div
+        ref={containerRef}
+        className="relative w-full rounded-lg overflow-hidden bg-black"
+        style={{ height: "100%" }}
+      >
+        {/* YouTube Embed (hidden but functional) */}
+        <div className="absolute inset-0">
+          <div id={`yt-player-${videoId}`}></div>
+        </div>
+
+        {/* Loading indicator */}
+        {isBuffering && (
+          <div className="absolute inset-0 flex items-center justify-center z-10">
+            <div className="rounded-full border-4 border-white border-opacity-30 border-t-white h-12 w-12 animate-spin"></div>
+          </div>
+        )}
+
+        {/* Controls Container */}
+        <div
+          className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent p-4 transition-opacity duration-300 z-20 ${
+            showControls ? "opacity-100" : "opacity-0"
+          }`}
+        >
+          {/* Progress Bar */}
+          <div className="mb-4">
+            <Slider
+              defaultValue={[0]}
+              value={[seekPercentage]}
+              max={100}
+              step={0.1}
+              onValueChange={handleSeek}
+              orientation="horizontal"
+              className="cursor-pointer"
+            />
+          </div>
+
+          {/* Controls Row */}
+          <div className="flex justify-between items-center">
+            <div className="flex items-center space-x-2">
+              {/* Play/Pause */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={togglePlay}
+                className="text-white hover:bg-white hover:bg-opacity-20"
+              >
+                {isPlaying ? <Pause size={20} /> : <Play size={20} />}
+              </Button>
+
+              {/* Skip Back */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={skipBackward}
+                className="text-white hover:bg-white hover:bg-opacity-20"
+              >
+                <SkipBack size={20} />
+              </Button>
+
+              {/* Skip Forward */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={skipForward}
+                className="text-white hover:bg-white hover:bg-opacity-20"
+              >
+                <SkipForward size={20} />
+              </Button>
+
+              {/* Volume Control */}
+              <div className="flex items-center">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={toggleMute}
+                  className="text-white hover:bg-white hover:bg-opacity-20"
+                >
+                  {isMuted || volume === 0 ? (
+                    <VolumeX size={20} />
+                  ) : (
+                    <Volume2 size={20} />
+                  )}
+                </Button>
+                <div className="w-20 hidden sm:block">
+                  <Slider
+                    defaultValue={[100]}
+                    value={[isMuted ? 0 : volume]}
+                    max={100}
+                    step={1}
+                    onValueChange={(value: number[]) =>
+                      adjustVolume(value[0] || 0)
+                    }
+                    className="cursor-pointer"
+                  />
+                </div>
+              </div>
+
+              {/* Time Display */}
+              <div className="text-white text-sm">
+                {formatTime(currentTime)} / {formatTime(duration)}
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              {/* Settings Menu */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-white hover:bg-white hover:bg-opacity-20"
+                  >
+                    <Settings size={20} />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  className="bg-zinc-900 text-white border-zinc-800 w-56"
+                >
+                  {/* Playback Speed */}
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger className="cursor-pointer hover:bg-white hover:bg-opacity-20">
+                      Playback Speed: {playbackSpeed}x
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="bg-zinc-900 text-white border-zinc-800">
+                      <DropdownMenuRadioGroup value={playbackSpeed.toString()}>
+                        {playbackSpeeds.map((speed) => (
+                          <DropdownMenuRadioItem
+                            key={speed}
+                            value={speed.toString()}
+                            className="cursor-pointer hover:bg-white hover:bg-opacity-20"
+                            onClick={() => setPlaybackSpeed(speed)}
+                          >
+                            {speed}x
+                          </DropdownMenuRadioItem>
+                        ))}
+                      </DropdownMenuRadioGroup>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              {/* Fullscreen Toggle */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={toggleFullscreen}
+                className="text-white hover:bg-white hover:bg-opacity-20"
+              >
+                {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
