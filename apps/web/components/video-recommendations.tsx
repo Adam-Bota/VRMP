@@ -3,15 +3,22 @@
 import React, { useEffect, useState } from "react";
 import VideoCard from "./video-card";
 import { fetchRelatedVideos, YouTubeVideo } from "@/lib/youtube";
+import { useAuth } from "./auth-provider";
 
 interface VideoRecommendationsProps {
   videoId: string;
   sessionId: string;
 }
 
-export function VideoRecommendations({ videoId, sessionId }: VideoRecommendationsProps) {
-  const [recommendedVideos, setRecommendedVideos] = useState<YouTubeVideo[]>([]);
+export function VideoRecommendations({
+  videoId,
+  sessionId,
+}: VideoRecommendationsProps) {
+  const [recommendedVideos, setRecommendedVideos] = useState<YouTubeVideo[]>(
+    []
+  );
   const [isLoading, setIsLoading] = useState(true);
+  const { user, authStateReady } = useAuth();
 
   useEffect(() => {
     async function loadRecommendations() {
@@ -31,7 +38,7 @@ export function VideoRecommendations({ videoId, sessionId }: VideoRecommendation
     }
   }, [videoId]);
 
-  if (isLoading) {
+  if (isLoading || !authStateReady) {
     return (
       <div className="mt-8">
         <h2 className="text-xl font-semibold mb-4">Recommendations</h2>
@@ -57,7 +64,12 @@ export function VideoRecommendations({ videoId, sessionId }: VideoRecommendation
       <h2 className="text-xl font-semibold mb-4">Recommended Videos</h2>
       <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
         {recommendedVideos.map((video) => (
-          <VideoCard key={video.id} video={video} sessionId={sessionId} />
+          <VideoCard
+            key={video.id}
+            video={video}
+            sessionId={sessionId}
+            userId={user?.uid!}
+          />
         ))}
       </div>
     </div>

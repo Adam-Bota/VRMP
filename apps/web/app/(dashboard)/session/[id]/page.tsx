@@ -4,9 +4,9 @@ import React from "react";
 
 
 type SearchPageProps = {
-  searchParams: {
+  searchParams: Promise<{
     q?: string;
-  };
+  }>;
   params: Promise<{
     id: string;
   }>;

@@ -39,6 +39,9 @@ export async function getActiveSessions(videoId: string): Promise<Session[]> {
         endTime: data.endTime,
         createdBy: data.createdBy,
         createdAt: data.createdAt,
+        participants: data.activeParticipants || [],
+        moderator: data.createdBy,
+        status: data.status,
       })
     );
 
@@ -200,29 +203,33 @@ export async function addActiveParticipant(
     if (!sessionData.activeParticipants.includes(userId)) {
       // Update videos collection
       await setDoc(
-        videoRef, 
+        videoRef,
         {
           sessions: {
             [sessionId]: {
-              activeParticipants: arrayUnion(userId)
-            }
-          }
-        }, 
+              activeParticipants: arrayUnion(userId),
+            },
+          },
+        },
         { merge: true }
       );
-      
+
       // Also update sessions collection to add this user as a participant
       const sessionRef = doc(db, "sessions", sessionId);
       const sessionSnap = await getDoc(sessionRef);
-      
+
       if (sessionSnap.exists()) {
         const sessionData = sessionSnap.data();
         const participants = sessionData.participants || [];
-        
+
         if (!participants.includes(userId)) {
-          await setDoc(sessionRef, {
-            participants: arrayUnion(userId)
-          }, { merge: true });
+          await setDoc(
+            sessionRef,
+            {
+              participants: arrayUnion(userId),
+            },
+            { merge: true }
+          );
         }
       }
     }
@@ -247,13 +254,17 @@ export async function removeActiveParticipant(
   try {
     const videoRef = doc(db, "videos", videoId);
 
-    await setDoc(videoRef, {
-      sessions: {
-        [sessionId]: {
-          activeParticipants: arrayRemove(userId)
-        }
-      }
-    }, { merge: true });
+    await setDoc(
+      videoRef,
+      {
+        sessions: {
+          [sessionId]: {
+            activeParticipants: arrayRemove(userId),
+          },
+        },
+      },
+      { merge: true }
+    );
 
     console.log(
       `User ${userId} removed from active participants in session ${sessionId}`
@@ -277,25 +288,33 @@ export async function inviteUserToSession(
     const videoRef = doc(db, "videos", videoId);
 
     // Set the invited user with default acceptance status as false
-    await setDoc(videoRef, {
-      sessions: {
-        [sessionId]: {
-          invitedParticipants: {
-            [userId]: false
-          }
-        }
-      }
-    }, { merge: true });
-    
+    await setDoc(
+      videoRef,
+      {
+        sessions: {
+          [sessionId]: {
+            invitedParticipants: {
+              [userId]: false,
+            },
+          },
+        },
+      },
+      { merge: true }
+    );
+
     // Also update the sessions collection if it exists
     const sessionRef = doc(db, "sessions", sessionId);
     const sessionSnap = await getDoc(sessionRef);
-    
+
     if (sessionSnap.exists()) {
       // Add to invited users in session metadata (using a new field if needed)
-      await setDoc(sessionRef, {
-        invitedUsers: arrayUnion(userId)
-      }, { merge: true });
+      await setDoc(
+        sessionRef,
+        {
+          invitedUsers: arrayUnion(userId),
+        },
+        { merge: true }
+      );
     }
 
     console.log(`User ${userId} invited to session ${sessionId}`);
@@ -319,30 +338,38 @@ export async function updateInviteAcceptance(
     const videoRef = doc(db, "videos", videoId);
 
     // Update in videos collection
-    await setDoc(videoRef, {
-      sessions: {
-        [sessionId]: {
-          invitedParticipants: {
-            [userId]: accepted
-          }
-        }
-      }
-    }, { merge: true });
-    
+    await setDoc(
+      videoRef,
+      {
+        sessions: {
+          [sessionId]: {
+            invitedParticipants: {
+              [userId]: accepted,
+            },
+          },
+        },
+      },
+      { merge: true }
+    );
+
     // If accepted, also add to participants in the sessions collection
     if (accepted) {
       const sessionRef = doc(db, "sessions", sessionId);
       const sessionSnap = await getDoc(sessionRef);
-      
+
       if (sessionSnap.exists()) {
         const sessionData = sessionSnap.data();
         const participants = sessionData.participants || [];
-        
+
         if (!participants.includes(userId)) {
           // Add to participants array
-          await setDoc(sessionRef, {
-            participants: arrayUnion(userId)
-          }, { merge: true });
+          await setDoc(
+            sessionRef,
+            {
+              participants: arrayUnion(userId),
+            },
+            { merge: true }
+          );
         }
       }
     }
@@ -368,15 +395,19 @@ export async function removeUserInviteFromSession(
     const videoRef = doc(db, "videos", videoId);
 
     // Remove the user from invitedParticipants map
-    await setDoc(videoRef, {
-      sessions: {
-        [sessionId]: {
-          invitedParticipants: {
-            [userId]: deleteField(),
+    await setDoc(
+      videoRef,
+      {
+        sessions: {
+          [sessionId]: {
+            invitedParticipants: {
+              [userId]: deleteField(),
+            },
           },
         },
-      }
-    }, { merge: true });
+      },
+      { merge: true }
+    );
 
     console.log(`User ${userId} removed from session ${sessionId} invites`);
   } catch (error) {
@@ -397,22 +428,30 @@ export async function startSession(
     const videoRef = doc(db, "videos", videoId);
 
     // Update in videos collection
-    await setDoc(videoRef, {
-      sessions: {
-        [sessionId]: {
-          status: "live"
-        }
-      }
-    }, { merge: true });
-    
+    await setDoc(
+      videoRef,
+      {
+        sessions: {
+          [sessionId]: {
+            status: "live",
+          },
+        },
+      },
+      { merge: true }
+    );
+
     // Also update the sessions collection
     const sessionRef = doc(db, "sessions", sessionId);
     const sessionSnap = await getDoc(sessionRef);
-    
+
     if (sessionSnap.exists()) {
-      await setDoc(sessionRef, {
-        status: "live"
-      }, { merge: true });
+      await setDoc(
+        sessionRef,
+        {
+          status: "live",
+        },
+        { merge: true }
+      );
     }
 
     console.log(`Session ${sessionId} started`);
@@ -434,24 +473,32 @@ export async function endSession(
     const videoRef = doc(db, "videos", videoId);
 
     // Update in videos collection
-    await setDoc(videoRef, {
-      sessions: {
-        [sessionId]: {
-          status: "ended",
-          activeParticipants: []
-        }
-      }
-    }, { merge: true });
-    
+    await setDoc(
+      videoRef,
+      {
+        sessions: {
+          [sessionId]: {
+            status: "ended",
+            activeParticipants: [],
+          },
+        },
+      },
+      { merge: true }
+    );
+
     // Also update the sessions collection
     const sessionRef = doc(db, "sessions", sessionId);
     const sessionSnap = await getDoc(sessionRef);
-    
+
     if (sessionSnap.exists()) {
-      await setDoc(sessionRef, {
-        status: "ended",
-        activeParticipants: []
-      }, { merge: true });
+      await setDoc(
+        sessionRef,
+        {
+          status: "ended",
+          activeParticipants: [],
+        },
+        { merge: true }
+      );
     }
 
     console.log(`Session ${sessionId} ended`);
