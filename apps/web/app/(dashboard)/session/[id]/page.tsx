@@ -1,7 +1,7 @@
 import SearchBar from "@/components/search-bar";
 import VideoGrid from "@/components/video-grid";
+import VideoIdBar from "@/components/video-id-bar";
 import React from "react";
-
 
 type SearchPageProps = {
   searchParams: Promise<{
@@ -22,8 +22,9 @@ export default async function Page({ searchParams, params }: SearchPageProps) {
 
   return (
     <>
-      <SearchBar />
-      <VideoGrid searchParams={{ q }} sessionId={id} />
+      <div className="w-full h-screen flex items-center justify-center">
+        <VideoIdBar />
+      </div>
     </>
   );
 }

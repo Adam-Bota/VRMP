@@ -1,0 +1,64 @@
+# Entity Relationship Diagram for Virtual Cinema
+
+entity User {
+  id: string [pk]
+  email: string
+  displayName: string
+  photoURL: string
+  createdAt: timestamp
+  lastLoginAt: timestamp
+  role: string
+  activeSession_id: string [ref: > Session.id]
+}
+
+entity Session {
+  id: string [pk]
+  createdAt: timestamp
+  createdBy_id: string [ref: > User.id]
+  participants: string[] // array of User.id
+  moderator_id: string [ref: > User.id]
+  currentVideoId: string
+  currentVideo_id: string [ref: > VideoDocument.id]
+  lastVideoUpdate: timestamp
+  // Realtime DB aspects are not directly modeled as entities here
+  // but SessionRealtime in types/session.ts describes its structure
+}
+
+entity VideoDocument {
+  id: string [pk]
+  title: string
+  // sessions: map // This is a map in Firestore, harder to represent directly in ERD
+                     // It links back to VideoSession which is part of this document,
+                     // not a separate table in the traditional sense.
+}
+
+// VideoSession is part of VideoDocument in Firestore
+// entity VideoSession {
+//   title: string
+//   startTime: number
+//   endTime: number
+//   createdBy_id: string [ref: > User.id]
+//   createdAt: timestamp
+//   status: string
+//   activeParticipants: string[] // array of User.id
+//   invitedParticipants: map // map of User.id to boolean
+// }
+
+entity ChatMessage {
+  id: string [pk]
+  user_id: string [ref: > User.id]
+  session_id: string [ref: > Session.id]
+  text: string
+  timestamp: number
+}
+
+# Relationships
+User.activeSession_id }o--|| Session.id
+Session.createdBy_id ||--|{ User.id
+Session.moderator_id ||--|{ User.id
+Session.currentVideo_id }o--|| VideoDocument.id
+ChatMessage.user_id ||--|{ User.id
+ChatMessage.session_id ||--|{ Session.id
+# User to Session (participants) is a many-to-many conceptual relationship,
+# stored as an array in Session.participants
+# VideoDocument to Session (via VideoDocument.sessions map) is a one-to-many conceptual relationship

@@ -22,10 +22,8 @@ interface NoSessionUIProps {
   error: string | null;
   loading: boolean;
   isJoining: boolean;
-  countdown: number;
   handleJoinSession: (e: React.FormEvent) => Promise<void>;
   handleCreateSession: (e: React.FormEvent) => Promise<void>;
-  goToSession: () => void;
 }
 
 export function NoSessionUI({
@@ -34,10 +32,8 @@ export function NoSessionUI({
   error,
   loading,
   isJoining,
-  countdown,
   handleJoinSession,
   handleCreateSession,
-  goToSession,
 }: NoSessionUIProps) {
   return (
     <Card>
@@ -72,7 +68,7 @@ export function NoSessionUI({
             //   isActive={true}
             //   countdown={countdown}
             // />
-            <Button variant="outline" onClick={goToSession} disabled={loading}>
+            <Button variant="outline" type="submit" disabled={loading}>
               Join Session
             </Button>
           )}

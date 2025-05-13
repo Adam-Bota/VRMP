@@ -22,21 +22,19 @@ export default function Client({
   }
 
   return (
-    <div className="">
+    <div className="w-full flex flex-col gap-4 h-full">
       {/* Using YouTubePlayerProvider at the page level */}
-      <YouTubePlayerProvider videoId={videoId} height={500} width="100%">
+      <YouTubePlayerProvider videoId={videoId} height="100%" width="100%">
         {/* Split Layout - 30/70 split */}
-        <div className="flex flex-col gap-4">
-          <div className="w-full">
-            <YouTubePlayer videoId={videoId} height={500} />
+        <div className="h-full flex flex-col gap-4 w-full">
+          <div className="h-full w-full [&> div]:w-full [&>div]:h-full">
+            <YouTubePlayer videoId={videoId} height={"100%"} />
             {/* Pass proper userId instead of videoId */}
             <YouTubePlayerSync sessionId={sessionId} userId={user.uid} />
           </div>
-          <div className="w-full">
-            <VideoRecommendations videoId={videoId} sessionId={sessionId} />
-          </div>
         </div>
       </YouTubePlayerProvider>
+      {/* <div className="w-full h-1"></div> */}
     </div>
   );
 }

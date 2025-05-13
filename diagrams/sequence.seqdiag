@@ -1,0 +1,68 @@
+# Sequence Diagram for Virtual Cinema Session
+
+title "Virtual Cinema User Session Flow"
+
+participant "User" as user
+participant "Frontend" as frontend
+participant "Firebase Auth" as auth
+participant "Firestore" as firestore
+participant "Firebase Realtime DB" as rtdb
+participant "Jitsi Meet" as jitsi
+
+user -> frontend: Attempts to access site
+frontend -> auth: Check authentication status
+opt User not authenticated
+  auth --> frontend: User not authenticated
+  frontend --> user: Display Login/Signup page
+  user -> frontend: Submits credentials
+  frontend -> auth: Authenticate user (e.g., signInWithEmailAndPassword)
+  auth --> frontend: Authentication successful (returns UserCredential)
+  frontend -> firestore: createUserIfNotExists(UserCredential.user)
+  firestore --> frontend: User profile ready
+end
+
+frontend --> user: Display Dashboard (option to create/join session)
+
+== User Creates a New Session ==
+user -> frontend: Click 'Create Session'
+frontend -> firestore: createSession(currentUser.id)
+firestore --> frontend: New Session details (sessionId, moderatorId=currentUser.id)
+frontend -> firestore: updateUserActiveSession(currentUser.id, sessionId)
+frontend --> user: Navigate to Session View (as Moderator)
+frontend -> jitsi: Initialize & Join Jitsi meeting for session (sessionId)
+
+== User Joins an Existing Session ==
+user -> frontend: Click 'Join Session' (selects from a list)
+frontend -> firestore: getSessionDetails(selectedSessionId)
+firestore --> frontend: Session details
+frontend -> firestore: addUserToSessionParticipants(selectedSessionId, currentUser.id)
+frontend -> firestore: updateUserActiveSession(currentUser.id, selectedSessionId)
+frontend --> user: Navigate to Session View (as Participant)
+frontend -> jitsi: Initialize & Join Jitsi meeting for session (selectedSessionId)
+
+== Moderator Selects/Changes Video ==
+user (Moderator) -> frontend: Selects a video (e.g., from YouTube search integrated in UI)
+frontend -> firestore: updateSession(sessionId, {currentVideoId: videoId, lastVideoUpdate: serverTimestamp()})
+firestore --> rtdb: (Firestore triggers update to Realtime DB or client updates RTDB directly for video state)
+frontend -> rtdb: Update Realtime DB session screen/videoState (moderator initiated)
+
+== Video Synchronization (Moderator controls playback) ==
+user (Moderator) -> frontend: Plays/Pauses/Seeks video
+frontend -> rtdb: Update Realtime DB videoState (play, pause, seek events with currentTime)
+
+== Video Synchronization (Participants receive updates) ==
+rtdb --> frontend (Participants): Receive videoState updates (play, pause, seek, video_change)
+frontend (Participants) -> frontend (YouTube Player): Adjust playback based on received state
+
+== Chat Functionality ==
+user -> frontend: Sends a chat message
+frontend -> rtdb: Add message to /chatMessages/{sessionId}
+rtdb --> frontend (All users in session): Receive new chat message
+frontend (All users in session) --> user: Display new chat message
+
+== User Leaves Session ==
+user -> frontend: Click 'Leave Session'
+frontend -> firestore: removeUserFromSessionParticipants(sessionId, currentUser.id)
+frontend -> firestore: clearUserActiveSession(currentUser.id)
+frontend -> jitsi: Leave Jitsi meeting
+frontend --> user: Navigate back to Dashboard
