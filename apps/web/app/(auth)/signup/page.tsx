@@ -32,15 +32,13 @@ export default function SignUpPage() {
   };
 
   return (
-    <div className="flex min-h-sm min-w-sm flex-col items-center justify-center gap-6 bg-muted p-6 md:p-10">
-      <AuthForm
-        type="signup"
-        onSubmit={onSubmit}
-        handleGoogleLogin={() => handleGoogleLogin(router)}
-        linkPath="/login"
-        linkText="Login"
-        buttonText="Sign Up"
-      />
-    </div>
+    <AuthForm
+      type="signup"
+      onSubmit={onSubmit}
+      handleGoogleLogin={() => handleGoogleLogin(router)}
+      linkPath="/login"
+      linkText="Login"
+      buttonText="Sign Up"
+    />
   );
 }

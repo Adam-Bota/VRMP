@@ -46,18 +46,19 @@ export function JaasMeetingWrapper() {
       roomName={sessionId}
       configOverwrite={{
         prejoinConfig: {
-          // enabled: false,
+          enabled: false,
           hideExtraJoinButtons: ["no-audio", "by-phone"],
         },
         backgroundColor: theme === "dark" ? "#0b0809" : "#ffffff",
         disableLocalVideoFlip: true,
         backgroundAlpha: 0.5,
         disablePoll: true,
-        disableChat: true,
+        disableChat: false,
         disableInviteFunctions: true,
         disableReactions: true,
         enableLobbyChat: false,
         toolbarButtons: [
+          "chat",
           "camera",
           "closedcaptions",
           "fullscreen",

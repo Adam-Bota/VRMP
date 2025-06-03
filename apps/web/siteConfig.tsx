@@ -13,8 +13,8 @@ export const siteConfig: {
     }[];
   }[];
 } = {
-  title: "Virtual Cinema",
-  description: "Virtual Cinema",
+  title: "Vinema Hub",
+  description: "Vinema Hub",
   navItems: [
     {
       title: "Home",

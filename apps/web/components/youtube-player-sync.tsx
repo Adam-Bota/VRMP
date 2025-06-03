@@ -680,7 +680,8 @@ export function YouTubePlayerSync({
         lastActive,
       } = otherParticipantTimes[0]!;
 
-      if (syncTime !== undefined && syncTime.currentTime > 0) {
+      // Check if we have valid time data
+      if (syncTime && typeof syncTime.currentTime === 'number' && syncTime.currentTime > 0) {
         // Calculate how much time has passed since their last update
         const timeSinceUpdate = (Date.now() - lastActive.getTime()) / 1000;
 
@@ -688,7 +689,7 @@ export function YouTubePlayerSync({
         const compensatedTime = syncTime.currentTime + timeSinceUpdate;
 
         console.log(
-          `Initial sync: Jumping to time ${compensatedTime} (original: ${syncTime}, delta: +${timeSinceUpdate.toFixed(2)}s) from user ${syncUserId}`
+          `Initial sync: Jumping to time ${compensatedTime.toFixed(2)} (original: ${syncTime.currentTime.toFixed(2)}, delta: +${timeSinceUpdate.toFixed(2)}s) from user ${syncUserId}`
         );
 
         // Add a small additional buffer for network delay

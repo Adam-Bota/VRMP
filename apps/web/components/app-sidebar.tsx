@@ -1,26 +1,65 @@
 "use client";
 
-import { Command, Copy, LogOut, Moon, Search, Sun } from "lucide-react";
+import {
+  Clapperboard,
+  Copy,
+  History,
+  Home,
+  LogOut,
+  Search,
+  ThumbsUp,
+} from "lucide-react";
 
-import { NavUser } from "@/components/nav-user";
-import Link from "next/link";
-import { siteConfig } from "@/siteConfig";
 import { cn } from "@workspace/ui/lib/utils";
 import { usePathname, useRouter } from "next/navigation";
 
-import { JaaSMeeting } from "@jitsi/react-sdk";
 import { useAuth } from "./auth-provider";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { toast } from "sonner";
 import { leaveSession } from "@/services/sessions";
 import { Button } from "@workspace/ui/components/button";
 import { useTheme } from "next-themes";
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { useConfirm } from "@/providers/confirm-provider";
 import { clearUserCurrentVideo } from "@/services/users";
 import { updateScreenState } from "@/services/realtime/sessions";
-import { Sidebar } from "@workspace/ui/components/sidebar";
-import { JaasMeetingWrapper } from "./jaas-meeting-wrapper"; // Import the new component
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from "@workspace/ui/components/sidebar";
+import { JaasMeetingWrapper } from "@/components/jaas-meeting-wrapper";
+import { NavMain } from "./nav-main";
+import { siteConfig } from "@/siteConfig";
+import Link from "next/link";
+
+// Define a type for chat messages
+type ChatMessage = {
+  id: string;
+  sender: string;
+  message: string;
+  timestamp: string;
+};
+
+// Dummy chat data
+const dummyChatMessages: ChatMessage[] = [
+  {
+    id: "1",
+    sender: "Mian Adam",
+    message: "Hey everyone! How's the movie?",
+    timestamp: "10:30 AM",
+  },
+  {
+    id: "3",
+    sender: "You",
+    message: "Awesome, glad to hear!",
+    timestamp: "10:32 AM",
+  },
+];
 
 export function AppSidebar({
   className,
@@ -127,92 +166,123 @@ export function AppSidebar({
   };
 
   return (
-    <Sidebar
-      {...props}
-    
-      side="right"
-    >
+    <Sidebar {...props} side="left" collapsible="icon">
       {/* Header */}
-      <div className="p-2 flex flex-col gap-2">
-        {/* <div className="flex items-center gap-2">
-          <Link
-            href="/"
-            className="flex items-center gap-2 w-full p-2 rounded-md hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
-          >
-            <div className="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
-              <Command className="size-4" />
-            </div>
-            <div className="grid flex-1 text-left text-sm leading-tight">
-              <span className="truncate font-medium">{siteConfig.title}</span>
-            </div>
-          </Link>
-        </div> */}
-
-        {/* Session action buttons */}
-        {doc?.activeSession && (
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size={isInVideo ? "icon" : "default"}
-              // className="flex-1"
-              onClick={handleCopyInvite}
+      <SidebarHeader>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              asChild
+              className="data-[slot=sidebar-menu-button]:!p-1.5"
             >
-              <Copy className="size-4" />
-              {isInVideo ? null : "Invite"}
-            </Button>
+              <Link href="/" className="bg-primary text-primary-foreground flex items-center gap-2 w-full p-2 rounded-md hover:bg-primary/90">
+                <Clapperboard className="h-5 w-5" />
+                <span className="truncate font-semibold">
+                  {siteConfig.title}
+                </span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarHeader>
+      <SidebarContent>
+        <NavMain
+          items={[
+            {
+              icon: <Home className="size-4" />,
 
-            {isModeratorUser && isInVideo && (
-              <Button
-                variant="outline"
-                size="icon"
-                // className="flex-1"
-                onClick={handleSearchClick}
-              >
-                <Search className="size-4" />
-              </Button>
-            )}
-
-            <Button
-              variant="destructive"
-              size="icon"
-              // className="flex-1"
-              onClick={handleLeaveSession}
-            >
-              <LogOut className="size-4" />
-            </Button>
-          </div>
-        )}
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 overflow-auto">
-        {/* The JaaSMeeting component was here, now it's empty or shows other content */}
-        {/* For example, if you want to show skeletons while the main content loads elsewhere: */}
-        {isLoading && !doc?.activeSession && (
-          <div className="flex flex-col gap-4 p-4">
-            <Skeleton className="h-32 w-full" />
-            <Skeleton className="h-32 w-full" />
-            <Skeleton className="h-32 w-full" />
-          </div>
-        )}
-        {/* Or, if this space is for something else now, adjust accordingly */}
-        {/* If it's meant to be empty when a session is active, you can add a placeholder or leave it */}
-        {!isLoading && doc?.activeSession && (
-          <div className="p-4 text-sm text-muted-foreground">
-            Voice/video chat is active.
-          </div>
-        )}
-      </div>
+              url: "/",
+              title: "Home",
+            },
+            {
+              icon: <History className="size-4" />,
+              url: "/history",
+              title: "History",
+            },
+            {
+              icon: <ThumbsUp className="size-4" />,
+              url: "/likedVideos",
+              title: "Liked Videos",
+            },
+          ]}
+        />
+      </SidebarContent>
 
       {/* Footer */}
-      <div className="p-2 border-t"> {/* Added border-t for separation */}
-        {/* <NavUser /> */} {/* You can uncomment this if needed */}
-        {doc?.activeSession && user && (
-          <div className="h-80"> {/* Adjust height as needed for the JaaS meeting UI */}
-            
-          </div>
+      <SidebarFooter>
+        {isLoading ? (
+          <Skeleton className="h-6 w-full" />
+        ) : (
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full justify-start"
+              onClick={handleCopyInvite}
+            >
+              <Copy className="mr-2 size-4" />
+              Copy Invite Link
+            </Button>
+            {isInVideo && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full justify-start"
+                onClick={handleSearchClick}
+              >
+                <Search className="mr-2 size-4" />
+                Change Video
+              </Button>
+            )}
+            <Button
+              variant="destructive"
+              size="sm"
+              className="w-full justify-start"
+              onClick={handleLeaveSession}
+            >
+              <LogOut className="mr-2 size-4" />
+              Leave Session
+            </Button>
+          </>
         )}
-      </div>
+      </SidebarFooter>
     </Sidebar>
   );
+}
+
+{
+  /* Chat Messages Display
+        {doc?.activeSession && (
+          <div className="p-4 space-y-4">
+            <h3 className="text-sm font-medium text-muted-foreground">Chat</h3>
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {dummyChatMessages.map((msg) => (
+                <div
+                  key={msg.id}
+                  className={cn(
+                    "p-2 rounded-lg text-sm",
+                    msg.sender === "You"
+                      ? "bg-primary text-primary-foreground self-end ml-auto max-w-[80%]"
+                      : "bg-muted max-w-[80%]"
+                  )}
+                >
+                  <div className="font-semibold">{msg.sender}</div>
+                  <div>{msg.message}</div>
+                  <div className="text-xs text-muted-foreground/80 text-right">
+                    {msg.timestamp}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {/* Simple chat input (non-functional for now) *
+            <div className="mt-2">
+              <input
+                type="text"
+                placeholder="Type a message..."
+                className="w-full p-2 border rounded-md bg-background text-foreground placeholder:text-muted-foreground"
+                disabled // For display purposes
+              />
+            </div>
+          </div>
+        )} */
 }

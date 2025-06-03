@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Slider } from "@workspace/ui/components/slider";
 import { useYouTubePlayer } from "@/providers/youtube-player-provider";
 
@@ -10,17 +10,45 @@ interface VideoSeekingPreviewProps {
 }
 
 export default function VideoSeekingPreview({
-  initialTime: time = 0,
+  initialTime = 0,
   maxTime = 100,
   label,
   onTimeChange,
 }: VideoSeekingPreviewProps) {
-  const { formatTime } = useYouTubePlayer();
+  const { formatTime, player } = useYouTubePlayer();
+  const [previewTime, setPreviewTime] = useState(initialTime);
+  const [isDragging, setIsDragging] = useState(false);
   
-  // Update when the time changes
-  const handleTimeChange = (value: number[]) => {
+  // Update component when external initialTime changes
+  useEffect(() => {
+    if (!isDragging) {
+      setPreviewTime(initialTime);
+    }
+  }, [initialTime, isDragging]);
+  
+  // Update preview time while dragging without affecting video
+  const handleDragValueChange = (value: number[]) => {
     const newTime = value[0] || 0;
-    onTimeChange(newTime);
+    setPreviewTime(newTime);
+  };
+  
+  // Apply seeking when user releases slider (on drop)
+  const handleDragEnd = (value: number[]) => {
+    const newTime = value[0] || 0;
+    setIsDragging(false);
+    
+    // Calculate time delta
+    const timeDelta = newTime - initialTime;
+    
+    // Only seek if there's an actual change in position
+    if (timeDelta !== 0) {
+      onTimeChange(newTime);
+      
+      // If we have direct access to player, we can also seek immediately
+      if (player) {
+        player.seekTo(newTime, true);
+      }
+    }
   };
   
   return (
@@ -28,17 +56,19 @@ export default function VideoSeekingPreview({
       <div className="flex items-center justify-between mb-2">
         <label className="block text-sm font-medium">{label}</label>
         <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
-          {formatTime(time)}
+          {formatTime(previewTime)}
         </span>
       </div>
       
       {/* Time Slider */}
       <div className="space-y-2">
         <Slider
-          value={[time]}
+          value={[previewTime]}
           max={maxTime}
           step={1}
-          onValueChange={handleTimeChange}
+          onValueChange={handleDragValueChange}
+          onValueCommit={handleDragEnd}
+          onPointerDown={() => setIsDragging(true)}
           className="cursor-pointer"
         />
         <div className="flex justify-between text-xs text-zinc-500">

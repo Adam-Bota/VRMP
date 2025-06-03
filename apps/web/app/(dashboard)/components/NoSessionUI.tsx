@@ -36,7 +36,7 @@ export function NoSessionUI({
   handleCreateSession,
 }: NoSessionUIProps) {
   return (
-    <Card>
+    <Card className="bg-white/80 dark:bg-black/50 backdrop-blur-lg">
       <CardHeader>
         <CardTitle>Create or Join a Session</CardTitle>
         <CardDescription>
@@ -49,6 +49,7 @@ export function NoSessionUI({
         <form onSubmit={handleJoinSession} className="flex gap-2 mb-4">
           <Input
             placeholder="Enter session ID"
+            className="border"
             value={joinSessionId}
             onChange={(e) => setJoinSessionId(e.target.value)}
             disabled={isJoining}
