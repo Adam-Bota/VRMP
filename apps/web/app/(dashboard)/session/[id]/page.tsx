@@ -25,34 +25,34 @@ export default async function Page({ searchParams, params }: SearchPageProps) {
     id: "",
   };
 
-  // Get session details first
-  const session = await getSessionById(id);
-  if (!session) {
-    redirect("/dashboard");
-  }
+  // // Get session details first
+  // const session = await getSessionById(id);
+  // if (!session) {
+  //   redirect("/dashboard");
+  // }
 
-  // Check if the user is logged in
-  const user = auth.currentUser;
-  if (!user) {
-    const returnUrl = `/session/${id}`;
-    redirect(`/login?returnUrl=${encodeURIComponent(returnUrl)}`);
-  }
+  // // Check if the user is logged in
+  // const user = auth.currentUser;
+  // if (!user) {
+  //   const returnUrl = `/session/${id}`;
+  //   redirect(`/login?returnUrl=${encodeURIComponent(returnUrl)}`);
+  // }
 
-  // Join session if not already a participant
-  if (!session.participants.includes(user.uid)) {
-    try {
-      await joinSession(id, user.uid);
+  // // Join session if not already a participant
+  // if (!session.participants.includes(user.uid)) {
+  //   try {
+  //     await joinSession(id, user.uid);
       
-    } catch (error) {
-      console.error("Error joining session:", error);
-      redirect("/dashboard");
-    }
-  }
+  //   } catch (error) {
+  //     console.error("Error joining session:", error);
+  //     redirect("/dashboard");
+  //   }
+  // }
 
-  // Check if session has a video and redirect if it does
-  if (session.currentVideo) {
-    redirect(`/session/${id}/yt?v=${session.currentVideo}`);
-  }
+  // // Check if session has a video and redirect if it does
+  // if (session.currentVideo) {
+  //   redirect(`/session/${id}/yt?v=${session.currentVideo}`);
+  // }
 
   return (
     <>
