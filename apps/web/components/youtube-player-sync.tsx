@@ -276,50 +276,26 @@ export function YouTubePlayerSync({
       if (syncIntervalRef.current) {
         clearInterval(syncIntervalRef.current);
       }
-    };  }, [sessionId, userId, player, videoId, isPlaying, debouncedUpdateTime]);
-  // Sync health monitoring - restart seek detection if it seems to have stopped
+    };  }, [sessionId, userId, player, videoId, isPlaying, debouncedUpdateTime]);  // Sync health monitoring - simple cleanup every 30 seconds
   useEffect(() => {
     if (!player || !sessionId || !userId) return;
 
-    let lastHealthCheckTime = Date.now();
-    let consecutiveFailures = 0;
-
     const healthCheckInterval = setInterval(() => {
       try {
-        // Basic health check - ensure player is still responsive
-        if (typeof player.getCurrentTime === "function") {
-          const currentTime = player.getCurrentTime();
-          
-          // If we haven't recorded any user actions recently and the player is active,
-          // reset our tracking to prevent stale state
-          const lastAction = lastUserActionRef.current;
-          const timeSinceLastAction = lastAction ? (Date.now() - lastAction.time) : Infinity;
-          
-          if (timeSinceLastAction > 30000) { // 30 seconds
-            console.log("Sync health check: Resetting action tracking");
-            lastUserActionRef.current = null;
-          }
-
-          // Reset failure counter on successful check
-          consecutiveFailures = 0;
-          lastHealthCheckTime = Date.now();
-        } else {
-          consecutiveFailures++;
-          console.warn(`Player health check failed (${consecutiveFailures}/3)`);
-        }
-
-        // If player is consistently unresponsive, try to recover
-        if (consecutiveFailures >= 3) {
-          console.error("Player appears unresponsive, attempting recovery...");
-          isHandlingRemoteEventRef.current = false;
+        // Reset stale action tracking every 30 seconds
+        const lastAction = lastUserActionRef.current;
+        const timeSinceLastAction = lastAction ? (Date.now() - lastAction.time) : Infinity;
+        
+        if (timeSinceLastAction > 30000) {
+          console.log("Health check: Resetting stale action tracking");
           lastUserActionRef.current = null;
-          consecutiveFailures = 0; // Reset to prevent continuous recovery attempts
+          isHandlingRemoteEventRef.current = false;
         }
       } catch (error) {
-        consecutiveFailures++;
-        console.warn(`Sync health check failed (${consecutiveFailures}/3):`, error);
+        console.warn("Health check failed:", error);
+        isHandlingRemoteEventRef.current = false;
       }
-    }, 15000); // Check every 15 seconds
+    }, 30000); // Check every 30 seconds
 
     return () => clearInterval(healthCheckInterval);
   }, [player, sessionId, userId]);
@@ -463,11 +439,6 @@ export function YouTubePlayerSync({
             `Sync: Remote seek to ${compensatedSeekTime} (with ${timeCompensation}s compensation)`
           );
           seekTo(compensatedSeekTime);
-          
-          // Reset handling flag after a brief delay to allow seek to complete
-          setTimeout(() => {
-            isHandlingRemoteEventRef.current = false;
-          }, 1000);
           break;
 
         case "video_change":
@@ -497,9 +468,9 @@ export function YouTubePlayerSync({
               window.location.href = currentUrl.toString();
             }
           }
-          break;
-      }
+          break;      }
 
+      // Reset handling flag after 500ms
       setTimeout(() => {
         isHandlingRemoteEventRef.current = false;
       }, 500);
@@ -524,8 +495,7 @@ export function YouTubePlayerSync({
       }    } catch (error) {
       console.error("Error processing sync events:", error);
       setSyncErrors((prev) => [...prev, `Error processing events: ${error}`]);
-    } finally {
-      // Always reset the flag after processing, with a small delay for seeks
+      // Reset flag on error after 500ms
       setTimeout(() => {
         isHandlingRemoteEventRef.current = false;
       }, 500);
@@ -540,7 +510,6 @@ export function YouTubePlayerSync({
     throttledPlayVideo,
     throttledPauseVideo,
   ]);
-
   // Send local player state changes to db
   useEffect(() => {
     if (!player || !sessionId || !userId) return;
@@ -596,7 +565,31 @@ export function YouTubePlayerSync({
       }
     };
 
-    // Listen for play/pause events from the YouTube iframe
+    const handleSeekChange = (currentTime: number) => {
+      try {
+        // Don't send events if we're handling a remote event
+        if (isHandlingRemoteEventRef.current) {
+          return;
+        }
+
+        // Track this local action
+        lastUserActionRef.current = {
+          type: "seek",
+          time: Date.now(),
+        };
+
+        console.log(`Sending seek event to time ${currentTime}`);
+
+        // Send the seek event
+        seekVideo(sessionId, userId, currentTime, currentTime)
+          .catch(error => console.error("Failed to send seek event:", error));
+      } catch (error) {
+        console.error("Error handling seek change:", error);
+        setSyncErrors((prev) => [...prev, `Error handling seek: ${error}`]);
+      }
+    };
+
+    // Listen for events from the YouTube iframe
     if (typeof player.getIframe !== "function") {
       console.warn("Player missing getIframe method");
       return;
@@ -604,12 +597,15 @@ export function YouTubePlayerSync({
 
     const iframe = player.getIframe();
     if (iframe) {
+      let lastTime = 0;
+      
       const handleMessage = (event: MessageEvent) => {
         // Check if message is from YouTube player
         if (event.source !== iframe.contentWindow) return;
 
         try {
           const data = JSON.parse(event.data);
+          
           if (data.event === "onStateChange") {
             const playerState = data.info;
 
@@ -621,117 +617,58 @@ export function YouTubePlayerSync({
               // Paused
               handlePlayStateChange(false);
             }
+          } else if (data.event === "onVideoProgress") {
+            // Handle seeking through video progress events
+            const currentTime = data.info;
+            const timeDifference = Math.abs(currentTime - lastTime);
+            
+            // If time jumped more than 2 seconds, it's a seek
+            if (timeDifference > 2 && lastTime > 0) {
+              handleSeekChange(currentTime);
+            }
+            
+            lastTime = currentTime;
           }
         } catch (e) {
           // Not a JSON message, ignore
         }
       };
 
-      window.addEventListener("message", handleMessage);
-      return () => window.removeEventListener("message", handleMessage);
-    }
-  }, [player, sessionId, userId, throttledPlayVideo, throttledPauseVideo]);
-  // Handle seeking
-  useEffect(() => {
-    if (!player || !sessionId || !userId) return;
-
-    if (typeof player.getCurrentTime !== "function") {
-      console.warn("Player missing getCurrentTime method for seek detection");
-      return;
-    }
-
-    let lastTime = 0;
-    let lastCheckTime = Date.now();
-    let isInitialized = false;
-    
-    try {
-      lastTime = player.getCurrentTime();
-      isInitialized = true;
-    } catch (error) {
-      console.error("Error getting initial time:", error);
-      return; // Exit if we can't get the initial time
-    }
-
-    let checkingInterval: NodeJS.Timeout;
-
-    const checkForSeek = () => {
-      if (!player || typeof player.getCurrentTime !== "function") return;
-
+      // Also use a simple interval as fallback for seek detection
+      let seekCheckInterval: NodeJS.Timeout;
       try {
-        const currentPlayerTime = player.getCurrentTime();
-        const currentCheckTime = Date.now();
-        const timeDifference = Math.abs(currentPlayerTime - lastTime);
-        const timeSinceLastCheck = (currentCheckTime - lastCheckTime) / 1000;
-
-        // Skip initial check to avoid false positives
-        if (!isInitialized) {
-          lastTime = currentPlayerTime;
-          lastCheckTime = currentCheckTime;
-          isInitialized = true;
-          return;
-        }
-
-        // Don't detect seeks if we're handling a remote event
-        if (isHandlingRemoteEventRef.current) {
-          lastTime = currentPlayerTime;
-          lastCheckTime = currentCheckTime;
-          return;
-        }
-
-        // Calculate expected time progression during playback
-        const expectedTimeProgress = isPlaying ? timeSinceLastCheck : 0;
-        const actualTimeProgress = currentPlayerTime - lastTime;
-        const unexpectedJump = Math.abs(actualTimeProgress - expectedTimeProgress);
-
-        // If there's an unexpected time jump greater than 2 seconds
-        if (unexpectedJump > 2) {
-          // Additional validation to avoid false positives
-          const recentUserAction = lastUserActionRef.current;
-          const timeSinceLastAction = recentUserAction ? 
-            (Date.now() - recentUserAction.time) : Infinity;
-
-          // Only send seek event if it wasn't caused by our own recent action
-          if (timeSinceLastAction > 1000) {
-            // Record this action
-            lastUserActionRef.current = {
-              type: "seek",
-              time: Date.now(),
-            };
+        lastTime = player.getCurrentTime();
+        
+        seekCheckInterval = setInterval(() => {
+          if (!player || typeof player.getCurrentTime !== "function") return;
+          
+          try {
+            const currentTime = player.getCurrentTime();
+            const timeDifference = Math.abs(currentTime - lastTime);
             
-            console.log(`Detected seek from ${lastTime} to ${currentPlayerTime} (jump: ${unexpectedJump.toFixed(2)}s)`);
+            // If time jumped more than 2 seconds, it's a seek
+            if (timeDifference > 2 && lastTime > 0) {
+              handleSeekChange(currentTime);
+            }
             
-            // Send the seek event to the database (non-throttled for accuracy)
-            seekVideo(sessionId, userId, lastTime, currentPlayerTime)
-              .catch(error => console.error("Failed to send seek event:", error));
+            lastTime = currentTime;
+          } catch (error) {
+            console.error("Error in seek detection fallback:", error);
           }
-        }
-
-        // Update tracking variables
-        lastTime = currentPlayerTime;
-        lastCheckTime = currentCheckTime;
+        }, 500);
       } catch (error) {
-        console.error("Error in seek detection:", error);
-        // Try to recover by getting current time again
-        try {
-          lastTime = player.getCurrentTime();
-          lastCheckTime = Date.now();
-        } catch (recoveryError) {
-          console.error("Failed to recover seek detection:", recoveryError);
+        console.error("Error setting up seek detection:", error);
+      }
+
+      window.addEventListener("message", handleMessage);
+      return () => {
+        window.removeEventListener("message", handleMessage);
+        if (seekCheckInterval) {
+          clearInterval(seekCheckInterval);
         }
-      }
-    };
-
-    // Check for seeks every 300ms for better responsiveness
-    checkingInterval = setInterval(checkForSeek, 300);
-
-    return () => {
-      if (checkingInterval) {
-        clearInterval(checkingInterval);
-      }
-    };
-  }, [player, sessionId, userId, isPlaying, debouncedSeekVideo]);
-
-  // For new members joining, sync their player to the most accurate time
+      };
+    }
+  }, [player, sessionId, userId, throttledPlayVideo, throttledPauseVideo]);  // For new members joining, sync their player to the most accurate time
   useEffect(() => {
     if (
       !player ||
