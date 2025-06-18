@@ -35,9 +35,9 @@ export default function SessionLayout({
           <div className="flex items-center gap-2 px-4">
             <SidebarTrigger className="-ml-1">
             </SidebarTrigger>
-            <Link
-              href="/"
-              className="flex items-center gap-2 w-full p-2 rounded-md hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
+            <div
+              // href="/"
+              className="flex items-center gap-2 w-full p-2 rounded-md transition-colors"
             >
               <div className="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
                 <Clapperboard className="size-4" />
@@ -45,7 +45,7 @@ export default function SessionLayout({
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">{siteConfig.title}</span>
               </div>
-            </Link>
+            </div>
           </div>
           <div className="flex items-center gap-2 px-4">
             <Button
@@ -60,14 +60,14 @@ export default function SessionLayout({
         </header>
         <div className="h-full w-full">
           <ResizablePanelGroup direction="horizontal" className="w-full">
-            <ResizablePanel defaultSize={75} minSize={50}>
+            <ResizablePanel defaultSize={75} minSize={30}>
               {children}
             </ResizablePanel>
             <ResizableHandle
               withHandle
               className="opacity-0 hover:opacity-100 transition-opacity z-60 relative"
             />
-            <ResizablePanel defaultSize={25} minSize={15} maxSize={45}>
+            <ResizablePanel defaultSize={25} minSize={15}>
               <footer className="flex h-full [&>div]:w-full">
                 <JaasMeetingWrapper />
               </footer>

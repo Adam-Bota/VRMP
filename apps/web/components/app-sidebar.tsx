@@ -175,7 +175,10 @@ export function AppSidebar({
               asChild
               className="data-[slot=sidebar-menu-button]:!p-1.5"
             >
-              <Link href="/" className="bg-primary text-primary-foreground flex items-center gap-2 w-full p-2 rounded-md hover:bg-primary/90">
+              <Link
+                href="/"
+                className="bg-primary text-primary-foreground flex items-center gap-2 w-full p-2 rounded-md hover:bg-primary/90"
+              >
                 <Clapperboard className="h-5 w-5" />
                 <span className="truncate font-semibold">
                   {siteConfig.title}
@@ -217,7 +220,7 @@ export function AppSidebar({
             <Button
               variant="outline"
               size="sm"
-              className="w-full justify-start"
+              className="w-full justify-start truncate"
               onClick={handleCopyInvite}
             >
               <Copy className="mr-2 size-4" />
@@ -227,7 +230,7 @@ export function AppSidebar({
               <Button
                 variant="outline"
                 size="sm"
-                className="w-full justify-start"
+                className="w-full justify-start truncate"
                 onClick={handleSearchClick}
               >
                 <Search className="mr-2 size-4" />
@@ -237,7 +240,7 @@ export function AppSidebar({
             <Button
               variant="destructive"
               size="sm"
-              className="w-full justify-start"
+              className="w-full justify-start truncate"
               onClick={handleLeaveSession}
             >
               <LogOut className="mr-2 size-4" />

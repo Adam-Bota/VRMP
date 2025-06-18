@@ -44,22 +44,26 @@ export interface SessionCreationEvent extends SessionEvent {
 export interface PlayEvent extends SessionEvent {
   type: "play";
   currentTime: number;
+  originator?: string; // ID of the user who initiated the event
 }
 
 export interface PauseEvent extends SessionEvent {
   type: "pause";
   currentTime: number;
+  originator?: string; // ID of the user who initiated the event
 }
 
 export interface SeekEvent extends SessionEvent {
   type: "seek";
   currentTime: number;
   seekTime: number;
+  originator?: string; // ID of the user who initiated the event
 }
 
 export interface VideoChangeEvent extends SessionEvent {
   type: "video_change";
   videoId: string;
+  originator?: string; // ID of the user who initiated the event
 }
 
 export type VideoEvent = PlayEvent | PauseEvent | SeekEvent | VideoChangeEvent;
