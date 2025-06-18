@@ -26,6 +26,7 @@ export default function SessionLayout({
   children: React.ReactNode;
 }) {
   const { theme, setTheme } = useTheme();
+  
 
   return (
     <SidebarProvider>

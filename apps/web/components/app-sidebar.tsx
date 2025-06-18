@@ -22,7 +22,7 @@ import { useTheme } from "next-themes";
 import { useRef } from "react";
 import { useConfirm } from "@/providers/confirm-provider";
 import { clearUserCurrentVideo } from "@/services/users";
-import { updateScreenState } from "@/services/realtime/sessions";
+import { clearVideo, updateScreenState } from "@/services/realtime/sessions";
 import {
   Sidebar,
   SidebarContent,
@@ -120,12 +120,8 @@ export function AppSidebar({
       const loading = toast.loading("Redirecting to search...");
 
       try {
-        // Update the screen state to search for all users in the session
-        await updateScreenState(sessionId, "search");
-
-        // Clear the current video for the moderator
         if (user?.uid) {
-          await clearUserCurrentVideo(user.uid);
+          await clearVideo(sessionId, user?.uid || "");
         }
 
         toast.success("Video terminated. Redirecting to search page...");
@@ -217,35 +213,42 @@ export function AppSidebar({
           <Skeleton className="h-6 w-full" />
         ) : (
           <>
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full justify-start truncate"
-              onClick={handleCopyInvite}
-            >
-              <Copy className="mr-2 size-4" />
-              Copy Invite Link
-            </Button>
-            {isInVideo && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full justify-start truncate"
-                onClick={handleSearchClick}
-              >
-                <Search className="mr-2 size-4" />
-                Change Video
-              </Button>
-            )}
-            <Button
-              variant="destructive"
-              size="sm"
-              className="w-full justify-start truncate"
-              onClick={handleLeaveSession}
-            >
-              <LogOut className="mr-2 size-4" />
-              Leave Session
-            </Button>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  size="sm"
+                  className="data-[slot=sidebar-menu-button]:!p-1.5 truncate"
+                  onClick={handleCopyInvite}
+                >
+                  <Copy className="mr-2 size-4" />
+                  Copy Invite Link
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              {isInVideo && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    size="sm"
+                    className="data-[slot=sidebar-menu-button]:!p-1.5 truncate"
+                    onClick={handleSearchClick}
+                  >
+                    <Search className="mr-2 size-4" />
+                    Change Video
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start truncate"
+                  onClick={handleLeaveSession}
+                >
+                  <LogOut className="mr-2 size-4" />
+                  Leave Session
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
           </>
         )}
       </SidebarFooter>

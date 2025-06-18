@@ -4,10 +4,10 @@ import { useState, type FormEvent, type KeyboardEvent, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Input } from "@workspace/ui/components/input";
 import { Button } from "@workspace/ui/components/button";
-import { parse } from 'url';
+import { parse } from "url";
 import { toast } from "sonner";
 import { useAuth } from "./auth-provider";
-import { getSessionById } from "@/services/sessions";
+import { getSessionById, updateSessionVideo } from "@/services/sessions";
 
 export default function VideoIdBar() {
   const router = useRouter();
@@ -28,7 +28,7 @@ export default function VideoIdBar() {
       try {
         const sessionId = doc.activeSession.id;
         const session = await getSessionById(sessionId);
-        
+
         if (session) {
           const isModerator = session.moderator === user.uid;
           setIsModeratorUser(isModerator);
@@ -48,15 +48,18 @@ export default function VideoIdBar() {
 
   const extractYouTubeVideoId = (url: string): string | null => {
     const parsedUrl = parse(url, true);
-    if (parsedUrl.hostname === "www.youtube.com" || parsedUrl.hostname === "youtube.com") {
-      return parsedUrl.query.v as string || null;
+    if (
+      parsedUrl.hostname === "www.youtube.com" ||
+      parsedUrl.hostname === "youtube.com"
+    ) {
+      return (parsedUrl.query.v as string) || null;
     } else if (parsedUrl.hostname === "youtu.be") {
       return parsedUrl.pathname?.split("/")[1] || null;
     }
     return null;
   };
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
     // Prevent non-moderators from searching
     if (!isModeratorUser) {
       toast.error("Only the session moderator can search for videos");
@@ -65,7 +68,10 @@ export default function VideoIdBar() {
 
     const videoId = extractYouTubeVideoId(query.trim());
     if (videoId) {
-      console.log(pathname)
+      const sessionId = doc?.activeSession?.id;
+      // Add video to doc
+      // await updateSessionVideo(sessionId!, videoId);
+      // toast.success("Video updated successfully");
       router.push(`${pathname}/yt?v=${encodeURIComponent(videoId)}`);
     } else {
       toast.error("Invalid YouTube link. Please provide a valid link.");
@@ -86,21 +92,25 @@ export default function VideoIdBar() {
 
   return (
     <div className="flex items-center gap-4 container mx-auto max-w-4xl px-2">
-      <form onSubmit={handleSubmit} className="flex flex-col w-full items-center gap-4">
+      <form
+        onSubmit={handleSubmit}
+        className="flex flex-col w-full items-center gap-4"
+      >
         <Input
           type="text"
-         
-          placeholder={isModeratorUser 
-            ? "Paste a YouTube link" 
-            : "Only the session moderator can play video"}
+          placeholder={
+            isModeratorUser
+              ? "Paste a YouTube link"
+              : "Only the session moderator can play video"
+          }
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
           className="flex-1 text-3xl"
           disabled={!isModeratorUser || isLoading}
         />
-        <Button 
-          type="submit" 
+        <Button
+          type="submit"
           variant="default"
           disabled={!isModeratorUser || isLoading}
           className="w-32"
