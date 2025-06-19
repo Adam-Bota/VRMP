@@ -193,8 +193,7 @@ export function YouTubePlayerSync({
   const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [syncErrors, setSyncErrors] = useState<string[]>([]);
   const remotePlayerStateRef = useRef<"playing" | "paused" | null>(null);
-  const isHandlingRemoteEventRef = useRef(false);
-  const pendingLocalEventsRef = useRef<{ type: string; time: number }[]>([]);
+  const isHandlingRemoteEventRef = useRef(false);  const pendingLocalEventsRef = useRef<{ type: string; time: number }[]>([]);
   const currentVideoIdRef = useRef<string | null>(null);
   const hasInitialSyncRef = useRef<boolean>(false);
   const [participantTimes, setParticipantTimes] = useState<{
@@ -203,6 +202,24 @@ export function YouTubePlayerSync({
       lastActive: Timestamp;
     };
   }>({});
+  
+  // Store current player state in refs to avoid dependencies in useEffect
+  const playerRef = useRef(player);
+  const isPlayingRef = useRef(isPlaying);
+  const seekToRef = useRef(seekTo);
+  
+  // Update refs when values change
+  useEffect(() => {
+    playerRef.current = player;
+  }, [player]);
+  
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
+  
+  useEffect(() => {
+    seekToRef.current = seekTo;
+  }, [seekTo]);
   // Create throttled versions of functions to avoid flooding the database
   const throttledPlayVideo = useRef(throttle(playVideo, 500)).current;
   const throttledPauseVideo = useRef(throttle(pauseVideo, 500)).current;
@@ -211,11 +228,15 @@ export function YouTubePlayerSync({
 
   const debouncedUpdateTime = useRef(
     debounce(updateParticipantTime, 2000)
-  ).current;
-
-  // When component mounts or videoId/sessionId changes, set up DB listeners
+  ).current;  // When component mounts or videoId/sessionId changes, set up DB listeners
   useEffect(() => {
     if (!sessionId) return;
+    
+    // Prevent multiple setups for the same session/video combo
+    const setupKey = `${sessionId}-${videoId || 'no-video'}`;
+    if (currentVideoIdRef.current === setupKey) {
+      return;
+    }
 
     console.log(
       `Setting up sync for session ${sessionId} with video ${videoId}`
@@ -231,8 +252,8 @@ export function YouTubePlayerSync({
       });
     }
 
-    // Set initial video reference
-    currentVideoIdRef.current = videoId || null;
+    // Set initial video reference to prevent re-setup
+    currentVideoIdRef.current = setupKey;
 
     // Subscribe to video events from the database
     const unsubscribe = subscribeToVideoEvents(sessionId, (events) => {
@@ -258,9 +279,23 @@ export function YouTubePlayerSync({
       }
     });
 
+    return () => {
+      unsubscribe();
+      debouncedUpdateTime.cancel();
+      if (syncIntervalRef.current) {
+        clearInterval(syncIntervalRef.current);
+        syncIntervalRef.current = null;
+      }
+    };
+  }, [sessionId, userId, videoId]); // Only essential dependencies
+
+  // Separate effect for time sync interval that depends on player state
+  useEffect(() => {
+    if (!player || !sessionId || !userId) return;
+
     // Start interval for regular time updates
     syncIntervalRef.current = setInterval(() => {
-      if (player && isPlaying && typeof player.getCurrentTime === "function") {
+      if (isPlaying && typeof player.getCurrentTime === "function") {
         try {
           const currentPlayerTime = player.getCurrentTime();
           debouncedUpdateTime(sessionId, userId, currentPlayerTime);
@@ -271,12 +306,12 @@ export function YouTubePlayerSync({
     }, 5000);
 
     return () => {
-      unsubscribe();
-      debouncedUpdateTime.cancel();
       if (syncIntervalRef.current) {
         clearInterval(syncIntervalRef.current);
+        syncIntervalRef.current = null;
       }
-    };  }, [sessionId, userId, player, videoId, isPlaying, debouncedUpdateTime]);  // Sync health monitoring - simple cleanup every 30 seconds
+    };
+  }, [player, isPlaying, sessionId, userId]);// Sync health monitoring - simple cleanup every 30 seconds
   useEffect(() => {
     if (!player || !sessionId || !userId) return;
 
@@ -312,11 +347,19 @@ export function YouTubePlayerSync({
       //     .catch(error => console.error("Error clearing user's current video:", error));
       // }
     };
-  }, [sessionId, userId, videoId]);
-
-  // Process incoming events from other users
+  }, [sessionId, userId, videoId]);  // Process incoming events from other users
   useEffect(() => {
-    if (!player || !videoEvents.length || !sessionId) return;
+    const currentPlayer = playerRef.current;
+    const currentIsPlaying = isPlayingRef.current;
+    const currentSeekTo = seekToRef.current;
+    
+    if (!currentPlayer || !videoEvents.length || !sessionId) return;
+
+    // Check if player methods are available before proceeding
+    if (typeof currentPlayer.getCurrentTime !== "function") {
+      console.warn("Player not ready for sync operations");
+      return;
+    }
 
     try {
       // Filter out events that originated from this user
@@ -352,13 +395,7 @@ export function YouTubePlayerSync({
       // Store this event as processed
       lastEventRef.current = latestExternalEvent;
 
-      // Apply the event based on its type
-      if (typeof player.getCurrentTime !== "function") {
-        console.error("Player missing getCurrentTime method");
-        return;
-      }
-
-      const currentPlayerTime = player.getCurrentTime();
+      const currentPlayerTime = currentPlayer.getCurrentTime();
       const eventCurrentTime =
         "currentTime" in latestExternalEvent
           ? latestExternalEvent.currentTime
@@ -393,7 +430,7 @@ export function YouTubePlayerSync({
           remotePlayerStateRef.current = "playing";
 
           // Only play if we're not already playing
-          if (!isPlaying && typeof player.playVideo === "function") {
+          if (!currentIsPlaying && typeof currentPlayer.playVideo === "function") {
             console.log("Sync: Remote play triggered");
 
             // If time difference is significant after compensation, seek first then play
@@ -401,21 +438,21 @@ export function YouTubePlayerSync({
               console.log(
                 `Sync: Seeking to compensated time ${compensatedTargetTime}`
               );
-              seekTo(compensatedTargetTime);
+              currentSeekTo(compensatedTargetTime);
 
               // Small delay to ensure seek completes before playing
               setTimeout(() => {
-                player.playVideo();
+                currentPlayer.playVideo();
               }, 200);
             } else {
-              player.playVideo();
+              currentPlayer.playVideo();
             }
-          } else if (isPlaying && timeDifference > 2) {
+          } else if (currentIsPlaying && timeDifference > 2) {
             // Already playing but needs time adjustment
             console.log(
               `Sync: Already playing, seeking to compensated time ${compensatedTargetTime}`
             );
-            seekTo(compensatedTargetTime);
+            currentSeekTo(compensatedTargetTime);
           }
           break;
 
@@ -424,11 +461,13 @@ export function YouTubePlayerSync({
           remotePlayerStateRef.current = "paused";
 
           // Only pause if we're not already paused
-          if (isPlaying && typeof player.pauseVideo === "function") {
+          if (currentIsPlaying && typeof currentPlayer.pauseVideo === "function") {
             console.log("Sync: Remote pause triggered");
-            player.pauseVideo();
+            currentPlayer.pauseVideo();
           }
-          break;        case "seek":
+          break;
+          
+        case "seek":
           // Apply time compensation to the seek target
           const compensatedSeekTime =
             ("seekTime" in latestExternalEvent
@@ -438,7 +477,7 @@ export function YouTubePlayerSync({
           console.log(
             `Sync: Remote seek to ${compensatedSeekTime} (with ${timeCompensation}s compensation)`
           );
-          seekTo(compensatedSeekTime);
+          currentSeekTo(compensatedSeekTime);
           break;
 
         case "video_change":
@@ -468,7 +507,8 @@ export function YouTubePlayerSync({
               window.location.href = currentUrl.toString();
             }
           }
-          break;      }
+          break;
+      }
 
       // Reset handling flag after 500ms
       setTimeout(() => {
@@ -478,8 +518,8 @@ export function YouTubePlayerSync({
       // Process any pending local events that were delayed
       if (pendingLocalEventsRef.current.length > 0) {
         const nextEvent = pendingLocalEventsRef.current.shift();
-        if (nextEvent && typeof player.getCurrentTime === "function") {
-          const currentTime = player.getCurrentTime();
+        if (nextEvent && typeof currentPlayer.getCurrentTime === "function") {
+          const currentTime = currentPlayer.getCurrentTime();
           if (nextEvent.type === "play") {
             throttledPlayVideo(sessionId, userId, currentTime);
           } else if (nextEvent.type === "pause") {
@@ -492,31 +532,28 @@ export function YouTubePlayerSync({
         pendingLocalEventsRef.current = pendingLocalEventsRef.current.filter(
           (event) => now - event.time < 3000
         );
-      }    } catch (error) {
+      }
+    } catch (error) {
       console.error("Error processing sync events:", error);
       setSyncErrors((prev) => [...prev, `Error processing events: ${error}`]);
       // Reset flag on error after 500ms
       setTimeout(() => {
         isHandlingRemoteEventRef.current = false;
       }, 500);
-    }
-  }, [
-    videoEvents,
-    player,
-    isPlaying,
-    userId,
-    sessionId,
-    seekTo,
-    throttledPlayVideo,
-    throttledPauseVideo,
-  ]);
-  // Send local player state changes to db
+    }  }, [videoEvents, sessionId, userId]); // Only essential dependencies  // Send local player state changes to db
   useEffect(() => {
-    if (!player || !sessionId || !userId) return;
+    const currentPlayer = playerRef.current;
+    if (!currentPlayer || !sessionId || !userId) return;
 
     const handlePlayStateChange = (isPlaying: boolean) => {
       try {
-        const currentPlayerTime = player.getCurrentTime();
+        // Check if player methods are available
+        if (typeof currentPlayer.getCurrentTime !== "function") {
+          console.warn("Player getCurrentTime method not available yet");
+          return;
+        }
+
+        const currentPlayerTime = currentPlayer.getCurrentTime();
 
         // Don't send events if we're handling a remote event
         if (isHandlingRemoteEventRef.current) {
@@ -590,64 +627,82 @@ export function YouTubePlayerSync({
     };
 
     // Listen for events from the YouTube iframe
-    if (typeof player.getIframe !== "function") {
+    if (typeof currentPlayer.getIframe !== "function") {
       console.warn("Player missing getIframe method");
       return;
     }
 
-    const iframe = player.getIframe();
-    if (iframe) {
-      let lastTime = 0;
-      
-      const handleMessage = (event: MessageEvent) => {
-        // Check if message is from YouTube player
-        if (event.source !== iframe.contentWindow) return;
+    const iframe = currentPlayer.getIframe();
+    if (!iframe) {
+      console.warn("Player iframe not available yet");
+      return;
+    }
 
-        try {
-          const data = JSON.parse(event.data);
-          
-          if (data.event === "onStateChange") {
-            const playerState = data.info;
+    let lastTime = 0;
+    let isPlayerReady = false;
+    
+    const handleMessage = (event: MessageEvent) => {
+      // Check if message is from YouTube player
+      if (event.source !== iframe.contentWindow) return;
 
-            // YouTube Player States: -1 (unstarted), 0 (ended), 1 (playing), 2 (paused), 3 (buffering), 5 (cued)
-            if (playerState === 1) {
-              // Playing
-              handlePlayStateChange(true);
-            } else if (playerState === 2) {
-              // Paused
-              handlePlayStateChange(false);
-            }
-          } else if (data.event === "onVideoProgress") {
-            // Handle seeking through video progress events
-            const currentTime = data.info;
-            const timeDifference = Math.abs(currentTime - lastTime);
-            
-            // If time jumped more than 2 seconds, it's a seek
-            if (timeDifference > 2 && lastTime > 0) {
-              handleSeekChange(currentTime);
-            }
-            
-            lastTime = currentTime;
-          }
-        } catch (e) {
-          // Not a JSON message, ignore
-        }
-      };
-
-      // Also use a simple interval as fallback for seek detection
-      let seekCheckInterval: NodeJS.Timeout;
       try {
-        lastTime = player.getCurrentTime();
+        const data = JSON.parse(event.data);
+        
+        if (data.event === "onStateChange") {
+          const playerState = data.info;
+
+          // YouTube Player States: -1 (unstarted), 0 (ended), 1 (playing), 2 (paused), 3 (buffering), 5 (cued)
+          if (playerState === 1) {
+            // Playing
+            handlePlayStateChange(true);
+            isPlayerReady = true;
+          } else if (playerState === 2) {
+            // Paused
+            handlePlayStateChange(false);
+            isPlayerReady = true;
+          } else if (playerState === 5) {
+            // Cued - player is ready
+            isPlayerReady = true;
+          }
+        } else if (data.event === "onVideoProgress" && isPlayerReady) {
+          // Handle seeking through video progress events
+          const currentTime = data.info;
+          const timeDifference = Math.abs(currentTime - lastTime);
+          
+          // If time jumped more than 2 seconds, it's a seek
+          if (timeDifference > 2 && lastTime > 0) {
+            handleSeekChange(currentTime);
+          }
+          
+          lastTime = currentTime;
+        }
+      } catch (e) {
+        // Not a JSON message, ignore
+      }
+    };
+
+    // Also use a simple interval as fallback for seek detection
+    let seekCheckInterval: NodeJS.Timeout | null = null;
+    
+    // Wait a bit for the player to be ready before starting seek detection
+    const startSeekDetection = () => {
+      if (!currentPlayer || typeof currentPlayer.getCurrentTime !== "function") {
+        return;
+      }
+      
+      try {
+        lastTime = currentPlayer.getCurrentTime();
+        isPlayerReady = true;
         
         seekCheckInterval = setInterval(() => {
-          if (!player || typeof player.getCurrentTime !== "function") return;
+          if (!currentPlayer || typeof currentPlayer.getCurrentTime !== "function") return;
           
           try {
-            const currentTime = player.getCurrentTime();
+            const currentTime = currentPlayer.getCurrentTime();
             const timeDifference = Math.abs(currentTime - lastTime);
             
             // If time jumped more than 2 seconds, it's a seek
-            if (timeDifference > 2 && lastTime > 0) {
+            if (timeDifference > 2 && lastTime > 0 && isPlayerReady) {
               handleSeekChange(currentTime);
             }
             
@@ -659,19 +714,27 @@ export function YouTubePlayerSync({
       } catch (error) {
         console.error("Error setting up seek detection:", error);
       }
+    };
 
-      window.addEventListener("message", handleMessage);
-      return () => {
-        window.removeEventListener("message", handleMessage);
-        if (seekCheckInterval) {
-          clearInterval(seekCheckInterval);
-        }
-      };
-    }
-  }, [player, sessionId, userId, throttledPlayVideo, throttledPauseVideo]);  // For new members joining, sync their player to the most accurate time
+    // Start seek detection after a short delay
+    const seekDetectionTimeout = setTimeout(startSeekDetection, 1000);
+
+    window.addEventListener("message", handleMessage);
+    
+    return () => {
+      window.removeEventListener("message", handleMessage);
+      if (seekCheckInterval) {
+        clearInterval(seekCheckInterval);
+      }
+      if (seekDetectionTimeout) {
+        clearTimeout(seekDetectionTimeout);
+      }
+    };
+  }, [sessionId, userId]); // Removed player dependency// For new members joining, sync their player to the most accurate time
   useEffect(() => {
+    const currentPlayer = playerRef.current;
     if (
-      !player ||
+      !currentPlayer ||
       !sessionId ||
       !userId ||
       !videoId ||
@@ -730,11 +793,11 @@ export function YouTubePlayerSync({
         const bufferedTime = compensatedTime + 0.5;
 
         // Seek to that time
-        if (typeof player.seekTo === "function") {
-          player.seekTo(bufferedTime, true);
+        if (typeof currentPlayer.seekTo === "function") {
+          currentPlayer.seekTo(bufferedTime, true);
 
           // Update our local tracking after seeking
-          if (typeof player.getCurrentTime === "function") {
+          if (typeof currentPlayer.getCurrentTime === "function") {
             debouncedUpdateTime(sessionId, userId, bufferedTime);
           }
 
@@ -752,7 +815,7 @@ export function YouTubePlayerSync({
       console.error("Error during initial player sync:", error);
       hasInitialSyncRef.current = true; // Prevent trying again
     }
-  }, [participantTimes, player, sessionId, userId, videoId]);
+  }, [participantTimes, sessionId, userId, videoId]); // Removed player dependency
 
   // If there are sync errors, we could show them for debugging
   if (syncErrors.length > 0 && process.env.NODE_ENV === "development") {

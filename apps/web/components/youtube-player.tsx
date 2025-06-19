@@ -108,7 +108,9 @@ export default function YouTubePlayer({
   }, [videoId]);
 
   return (
-    <div style={{ height: typeof height === "number" ? `${height}px` : height }}>
+    <div
+      style={{ height: typeof height === "number" ? `${height}px` : height }}
+    >
       <div
         ref={containerRef}
         className="relative w-full rounded-lg overflow-hidden bg-black"
@@ -117,15 +119,24 @@ export default function YouTubePlayer({
         {/* YouTube Embed (hidden but functional) */}
         <div className="absolute inset-0">
           <div id={`yt-player-${videoId}`}></div>
-        </div>
-
+        </div>{" "}
         {/* Loading indicator */}
         {isBuffering && (
           <div className="absolute inset-0 flex items-center justify-center z-10">
             <div className="rounded-full border-4 border-white border-opacity-30 border-t-white h-12 w-12 animate-spin"></div>
           </div>
         )}
-
+        {/* Paused Glass Overlay */}
+        {!isPlaying && !isBuffering && (
+          <div className="absolute inset-0 flex items-center justify-center z-15 bg-[rgba(0,0,0,0.1)] backdrop-blur-md bg-opacity-20">
+            <div
+              className="flex items-center justify-center w-20 h-20 rounded-full bg-[rgba(255,255,255,0.5)] backdrop-blur-lg border border-white border-opacity-30"
+              onClick={togglePlay}
+            >
+              <Play size={32} className="text-white ml-1" />
+            </div>
+          </div>
+        )}
         {/* Controls Container */}
         <div
           className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent p-4 transition-opacity duration-300 z-20 ${
