@@ -13,6 +13,14 @@ import {
   Settings,
   Maximize,
   Minimize,
+  ThumbsUp,
+  ThumbsDown,
+  Smile,
+  Heart,
+  HeartCrack,
+  Laugh,
+  Frown,
+  Angry,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -23,12 +31,23 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuItem,
 } from "@workspace/ui/components/dropdown-menu";
 import { cn } from "@workspace/ui/lib/utils";
-import { 
+import {
   useYouTubePlayer,
   playbackSpeeds,
 } from "../providers/youtube-player-provider";
+import { Video } from "@/types/video";
+import { useAuth } from "./auth-provider";
+import {
+  dislikeVideo,
+  likeVideo,
+  undislikeVideo,
+  unlikeVideo,
+} from "@/services/videos";
+import { useState } from "react";
+import { sendPopupEvent } from "./youtube-player-sync";
 
 // Component props interface
 interface YouTubePlayerProps {
@@ -43,7 +62,11 @@ export default function YouTubePlayer({
   height = 400,
   width = "100%",
 }: YouTubePlayerProps) {
+  const { user } = useAuth();
+  const userId = user?.uid || "";
+  const userName = user?.displayName || user?.email || "Anonymous";
   const {
+    video,
     containerRef,
     isPlaying,
     currentTime,
@@ -64,15 +87,15 @@ export default function YouTubePlayer({
     handleSeek,
     toggleFullscreen,
     formatTime,
-    setPlaybackSpeed
+    setPlaybackSpeed,
   } = useYouTubePlayer();
 
   // Add styles for fullscreen handling
   React.useEffect(() => {
     // Add a style element for the fullscreen CSS if it doesn't exist yet
-    if (!document.getElementById('youtube-player-styles')) {
-      const style = document.createElement('style');
-      style.id = 'youtube-player-styles';
+    if (!document.getElementById("youtube-player-styles")) {
+      const style = document.createElement("style");
+      style.id = "youtube-player-styles";
       style.textContent = `
         .youtube-player-fullscreen {
           position: fixed !important;
@@ -97,15 +120,47 @@ export default function YouTubePlayer({
       `;
       document.head.appendChild(style);
     }
-    
+
     return () => {
       // Clean up when component unmounts (optional)
-      const styleElement = document.getElementById('youtube-player-styles');
-      if (styleElement && videoId === 'cleanup') { // Only remove on final cleanup
+      const styleElement = document.getElementById("youtube-player-styles");
+      if (styleElement && videoId === "cleanup") {
+        // Only remove on final cleanup
         styleElement.remove();
       }
     };
   }, [videoId]);
+
+  // Like and dislike button handlers
+  const handleLike = async () => {
+    if (!user) return;
+    if (video?.likes?.includes(userId)) {
+      await unlikeVideo(videoId, userId);
+    } else {
+      await likeVideo(videoId, userId);
+    }
+  };
+
+  const handleDislike = async () => {
+    if (!user) return;
+    // Update video dislikes in the database
+    if (video?.dislikes?.includes(userId)) {
+      await undislikeVideo(videoId, userId);
+    } else {
+      await dislikeVideo(videoId, userId);
+    }
+  };
+
+  // Emoji reaction handler
+  const handleEmoji = async (emoji: string) => {
+    if (!userId || !videoId) return;
+    // sessionId should be passed as a prop or from context
+    const sessionId = window.location.pathname.split("/").includes("session")
+      ? window.location.pathname.split("/")[2]
+      : "";
+    if (!sessionId) return;
+    await sendPopupEvent(sessionId, userId, userName, emoji as any);
+  };
 
   return (
     <div
@@ -224,6 +279,39 @@ export default function YouTubePlayer({
             </div>
 
             <div className="flex items-center space-x-2">
+              {/* Like and Dislike */}
+              <Button
+                variant="ghost"
+                // size="icon"
+                className={cn(
+                  video?.likes?.includes(userId)
+                    ? "text-primary hover:bg-primary"
+                    : "text-white hover:bg-white",
+                  "hover:bg-opacity-20"
+                )}
+                onClick={handleLike}
+              >
+                <span className="sr-only">Like</span>
+                <ThumbsUp size={20} />
+                <span className="text-sm">{video?.likes?.length || 0}</span>
+              </Button>
+
+              <Button
+                variant="ghost"
+                // size="icon"
+                className={cn(
+                  video?.dislikes?.includes(userId)
+                    ? "text-destructive hover:bg-destructive"
+                    : "text-white hover:bg-white",
+                  "hover:bg-opacity-20"
+                )}
+                onClick={handleDislike}
+              >
+                <span className="sr-only">Dislike</span>
+                <ThumbsDown size={20} />
+                <span className="text-sm">{video?.dislikes?.length || 0}</span>
+              </Button>
+
               {/* Settings Menu */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -271,6 +359,52 @@ export default function YouTubePlayer({
               >
                 {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
               </Button>
+
+              {/* Emoji Reaction Dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-white hover:bg-white hover:bg-opacity-20"
+                  >
+                    <Smile size={20} />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  className="bg-zinc-900 text-white border-zinc-800 w-40"
+                >
+                  <DropdownMenuItem onClick={() => handleEmoji("like")}>
+                    {" "}
+                    <ThumbsUp className="text-blue-500" size={18} /> Like{" "}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleEmoji("dislike")}>
+                    {" "}
+                    <ThumbsDown className="text-gray-500" size={18} /> Dislike{" "}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleEmoji("heart")}>
+                    {" "}
+                    <Heart className="text-pink-500" size={18} /> Heart{" "}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleEmoji("heart-broken")}>
+                    {" "}
+                    <HeartCrack className="text-rose-500" size={18} /> Heart Broken{" "}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleEmoji("laugh")}>
+                    {" "}
+                    <Laugh className="text-yellow-400" size={18} /> Laugh{" "}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleEmoji("sad")}>
+                    {" "}
+                    <Frown className="text-blue-400" size={18} /> Sad{" "}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleEmoji("angry")}>
+                    {" "}
+                    <Angry className="text-red-600" size={18} /> Angry{" "}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </div>

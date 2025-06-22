@@ -1,43 +1,68 @@
 import { database } from "@/firebase.client";
-import { ref, set, get, update, onValue, off, push, serverTimestamp, remove } from "firebase/database";
-import { SessionRealtime, VideoEvent, SessionCreationEvent, VideoChangeEvent } from "@/types/session";
+import {
+  ref,
+  set,
+  get,
+  update,
+  onValue,
+  off,
+  push,
+  serverTimestamp,
+  remove,
+} from "firebase/database";
+import {
+  SessionRealtime,
+  VideoEvent,
+  SessionCreationEvent,
+  VideoChangeEvent,
+  PopupEvent,
+} from "@/types/session";
 import { Timestamp } from "firebase/firestore";
 import { getSessionById } from "@/services/sessions";
+import { toast } from "sonner";
 // import { setUserCurrentVideo } from "@/services/users";
 
 /**
  * Initialize a session in the realtime database
  * This should be called after the Firestore session document is created
  */
-export async function initializeRealtimeSession(sessionId: string, userId: string): Promise<void> {
+export async function initializeRealtimeSession(
+  sessionId: string,
+  userId: string
+): Promise<void> {
   try {
     const sessionRef = ref(database, `sessions/${sessionId}`);
     const snapshot = await get(sessionRef);
-    
+
     // Only initialize if not already set up
     if (!snapshot.exists()) {
       const initialState: SessionRealtime = {
         screen: "lobby",
         participants: {
           [userId]: {
-            active: true
-          }
+            active: true,
+          },
         },
-        sessionEvents: []
+        sessionEvents: [],
       };
-      
+
       await set(sessionRef, initialState);
-      
+
       // Add session creation event
       await addSessionCreationEvent(sessionId, userId);
-      
+
       console.log(`Realtime session ${sessionId} initialized`);
     } else {
       // If session exists, just update current user's participant status
-      await update(ref(database, `sessions/${sessionId}/participants/${userId}`), {
-        active: true
-      });
-      console.log(`User ${userId} marked as active in existing realtime session ${sessionId}`);
+      await update(
+        ref(database, `sessions/${sessionId}/participants/${userId}`),
+        {
+          active: true,
+        }
+      );
+      console.log(
+        `User ${userId} marked as active in existing realtime session ${sessionId}`
+      );
     }
   } catch (error) {
     console.error("Error initializing realtime session:", error);
@@ -48,19 +73,22 @@ export async function initializeRealtimeSession(sessionId: string, userId: strin
 /**
  * Add a session creation event
  */
-export async function addSessionCreationEvent(sessionId: string, userId: string): Promise<void> {
+export async function addSessionCreationEvent(
+  sessionId: string,
+  userId: string
+): Promise<void> {
   try {
     const eventsRef = ref(database, `sessions/${sessionId}/sessionEvents`);
     const newEventRef = push(eventsRef);
-    
+
     const event: SessionCreationEvent = {
-      id: newEventRef.key || '',
+      id: newEventRef.key || "",
       type: "session_created",
       sessionId: sessionId,
       timestamp: Timestamp.now(),
-      userId: userId
+      userId: userId,
     };
-    
+
     await set(newEventRef, event);
   } catch (error) {
     console.error("Error adding session creation event:", error);
@@ -73,64 +101,69 @@ export async function addSessionCreationEvent(sessionId: string, userId: string)
 export async function addVideoEvent(
   sessionId: string,
   userId: string,
-  eventType: 'play' | 'pause' | 'seek',
+  eventType: "play" | "pause" | "seek" | "popup",
   currentTime: number,
-  seekTime?: number
+  seekTime?: number,
+  popup?: { userName: string; emoji: PopupEvent["emoji"] }
 ): Promise<void> {
   try {
     // Ensure video state exists
     const videoStateRef = ref(database, `sessions/${sessionId}/videoState`);
     const snapshot = await get(videoStateRef);
-    
+
     if (!snapshot.exists()) {
       // Initialize video state if it doesn't exist
       await update(videoStateRef, {
-        id: '',  // This will be set when a video is selected
+        id: "", // This will be set when a video is selected
         events: [],
-        participantTimes: {}
+        participantTimes: {},
       });
     }
-    
+
     // Add the new event
     const eventsRef = ref(database, `sessions/${sessionId}/videoState/events`);
     const newEventRef = push(eventsRef);
-    
+
     let event: VideoEvent;
-    
-    if (eventType === 'seek' && seekTime !== undefined) {
+
+    if (eventType === "seek" && seekTime !== undefined) {
       event = {
-        id: newEventRef.key || '',
+        id: newEventRef.key || "",
         type: eventType,
         timestamp: Timestamp.now(),
         userId,
         currentTime,
-        seekTime
+        seekTime,
+      };
+    } else if (eventType === "popup") {
+      if (!popup || !popup.emoji) {
+        toast.error("Popup event requires an emoji");
+        return;
+      }
+      event = {
+        id: newEventRef.key || "",
+        type: eventType,
+        timestamp: Timestamp.now(),
+        userName: popup.userName,
+        emoji: popup?.emoji,
+        userId,
       };
     } else {
       event = {
-        id: newEventRef.key || '',
-        type: eventType as 'play' | 'pause',
+        id: newEventRef.key || "",
+        type: eventType as "play" | "pause",
         timestamp: Timestamp.now(),
         userId,
-        currentTime
+        currentTime,
       };
     }
-    
+
+    console.log("Setting video event:", event);
     await set(newEventRef, event);
-    
+
     // Update participant time
-    await updateParticipantTime(sessionId, userId, currentTime);
-    
-    // Also update the screen state if it's not already set to "yt"
-    const sessionRef = ref(database, `sessions/${sessionId}`);
-    const sessionSnapshot = await get(sessionRef);
-    
-    if (sessionSnapshot.exists()) {
-      const session = sessionSnapshot.val() as SessionRealtime;
-      if (session.screen !== "yt") {
-        await update(sessionRef, { screen: "yt" });
-      }
-    }
+    // await updateParticipantTime(sessionId, userId, currentTime);
+
   } catch (error) {
     console.error(`Error adding ${eventType} event:`, error);
   }
@@ -145,10 +178,13 @@ export async function updateParticipantTime(
   currentTime: number
 ): Promise<void> {
   try {
-    const participantTimeRef = ref(database, `sessions/${sessionId}/videoState/participantTimes/${userId}`);
+    const participantTimeRef = ref(
+      database,
+      `sessions/${sessionId}/videoState/participantTimes/${userId}`
+    );
     await update(participantTimeRef, {
       currentTime,
-      lastActive: Timestamp.now()
+      lastActive: Timestamp.now(),
     });
   } catch (error) {
     console.error("Error updating participant time:", error);
@@ -164,7 +200,11 @@ export async function setVideoId(
 ): Promise<void> {
   try {
     await update(ref(database, `sessions/${sessionId}/videoState`), {
-      id: videoId
+      id: videoId,
+    });
+
+    await update(ref(database, `sessions/${sessionId}`), {
+      screen: "yt",
     });
   } catch (error) {
     console.error("Error setting video ID:", error);
@@ -183,29 +223,31 @@ export async function changeVideo(
   try {
     // Update the video ID in the realtime database
     await update(ref(database, `sessions/${sessionId}/videoState`), {
-      id: videoId
+      id: videoId,
     });
-    
+
     // Add a video change event
     const eventsRef = ref(database, `sessions/${sessionId}/videoState/events`);
     const newEventRef = push(eventsRef);
-    
+
     const event: VideoChangeEvent = {
-      id: newEventRef.key || '',
+      id: newEventRef.key || "",
       type: "video_change",
       timestamp: Timestamp.now(),
       userId,
-      videoId
+      videoId,
     };
-    
+
     await set(newEventRef, event);
-    
+
     // Update screen state to ensure we're in video view
-    await update(ref(database, `sessions/${sessionId}`), { 
-      screen: "yt" 
+    await update(ref(database, `sessions/${sessionId}`), {
+      screen: "yt",
     });
-    
-    console.log(`Changed video to ${videoId} in realtime database for session ${sessionId}`);
+
+    console.log(
+      `Changed video to ${videoId} in realtime database for session ${sessionId}`
+    );
   } catch (error) {
     console.error("Error changing video in realtime database:", error);
     throw error; // Re-throw to allow caller to handle the error
@@ -220,7 +262,7 @@ export async function playVideo(
   userId: string,
   currentTime: number
 ): Promise<void> {
-  await addVideoEvent(sessionId, userId, 'play', currentTime);
+  await addVideoEvent(sessionId, userId, "play", currentTime);
 }
 
 /**
@@ -231,7 +273,7 @@ export async function pauseVideo(
   userId: string,
   currentTime: number
 ): Promise<void> {
-  await addVideoEvent(sessionId, userId, 'pause', currentTime);
+  await addVideoEvent(sessionId, userId, "pause", currentTime);
 }
 
 /**
@@ -243,7 +285,7 @@ export async function seekVideo(
   currentTime: number,
   seekTime: number
 ): Promise<void> {
-  await addVideoEvent(sessionId, userId, 'seek', currentTime, seekTime);
+  await addVideoEvent(sessionId, userId, "seek", currentTime, seekTime);
 }
 
 /**
@@ -251,11 +293,11 @@ export async function seekVideo(
  */
 export async function updateScreenState(
   sessionId: string,
-  screen: SessionRealtime['screen']
+  screen: SessionRealtime["screen"]
 ): Promise<void> {
   try {
     await update(ref(database, `sessions/${sessionId}`), {
-      screen
+      screen,
     });
   } catch (error) {
     console.error("Error updating screen state:", error);
@@ -271,9 +313,12 @@ export async function updateUserActivity(
   isActive: boolean = true
 ): Promise<void> {
   try {
-    await update(ref(database, `sessions/${sessionId}/participants/${userId}`), {
-      active: isActive
-    });
+    await update(
+      ref(database, `sessions/${sessionId}/participants/${userId}`),
+      {
+        active: isActive,
+      }
+    );
   } catch (error) {
     console.error("Error updating user activity:", error);
   }
@@ -287,7 +332,7 @@ export function subscribeToSession(
   callback: (data: SessionRealtime | null) => void
 ): () => void {
   const sessionRef = ref(database, `sessions/${sessionId}`);
-  
+
   onValue(sessionRef, (snapshot) => {
     if (snapshot.exists()) {
       callback(snapshot.val() as SessionRealtime);
@@ -295,7 +340,7 @@ export function subscribeToSession(
       callback(null);
     }
   });
-  
+
   return () => off(sessionRef);
 }
 
@@ -304,18 +349,18 @@ export function subscribeToSession(
  */
 export function subscribeToVideoState(
   sessionId: string,
-  callback: (data: SessionRealtime['videoState'] | null) => void
+  callback: (data: SessionRealtime["videoState"] | null) => void
 ): () => void {
   const videoStateRef = ref(database, `sessions/${sessionId}/videoState`);
-  
+
   onValue(videoStateRef, (snapshot) => {
     if (snapshot.exists()) {
-      callback(snapshot.val() as SessionRealtime['videoState']);
+      callback(snapshot.val() as SessionRealtime["videoState"]);
     } else {
       callback(null);
     }
   });
-  
+
   return () => off(videoStateRef);
 }
 
@@ -327,16 +372,16 @@ export function subscribeToVideoEvents(
   callback: (events: VideoEvent[]) => void
 ): () => void {
   const eventsRef = ref(database, `sessions/${sessionId}/videoState/events`);
-  
+
   onValue(eventsRef, (snapshot) => {
     if (snapshot.exists()) {
       try {
         const eventsObj = snapshot.val();
-        
+
         // Convert raw events from database to proper VideoEvent objects
         const events = Object.values(eventsObj).map((event: any) => {
           // Ensure timestamp is properly formatted for Firestore compatibility
-          if (event.timestamp && typeof event.timestamp === 'object') {
+          if (event.timestamp && typeof event.timestamp === "object") {
             // If timestamp is already in Firestore format, use it
             if (event.timestamp.seconds !== undefined) {
               try {
@@ -349,7 +394,7 @@ export function subscribeToVideoEvents(
                 console.error("Failed to convert timestamp:", e);
               }
             }
-          } else if (typeof event.timestamp === 'number') {
+          } else if (typeof event.timestamp === "number") {
             // If timestamp is a number, convert to Firestore Timestamp
             const seconds = Math.floor(event.timestamp / 1000);
             const nanoseconds = (event.timestamp % 1000) * 1000000;
@@ -359,10 +404,10 @@ export function subscribeToVideoEvents(
               console.error("Failed to convert numeric timestamp:", e);
             }
           }
-          
+
           return event;
         }) as VideoEvent[];
-        
+
         callback(events);
       } catch (error) {
         console.error("Error processing video events from database:", error);
@@ -372,7 +417,7 @@ export function subscribeToVideoEvents(
       callback([]);
     }
   });
-  
+
   return () => off(eventsRef);
 }
 
@@ -381,18 +426,18 @@ export function subscribeToVideoEvents(
  */
 export function subscribeToScreenState(
   sessionId: string,
-  callback: (screen: SessionRealtime['screen']) => void
+  callback: (screen: SessionRealtime["screen"]) => void
 ): () => void {
   const screenRef = ref(database, `sessions/${sessionId}/screen`);
-  
+
   onValue(screenRef, (snapshot) => {
     if (snapshot.exists()) {
-      callback(snapshot.val() as SessionRealtime['screen']);
+      callback(snapshot.val() as SessionRealtime["screen"]);
     } else {
-      callback('lobby'); // Default screen
+      callback("lobby"); // Default screen
     }
   });
-  
+
   return () => off(screenRef);
 }
 
@@ -405,13 +450,19 @@ export async function leaveRealtimeSession(
 ): Promise<void> {
   try {
     // Mark user as inactive in realtime participants
-    await update(ref(database, `sessions/${sessionId}/participants/${userId}`), {
-      active: false
-    });
-    
+    await update(
+      ref(database, `sessions/${sessionId}/participants/${userId}`),
+      {
+        active: false,
+      }
+    );
+
     // Remove from participant times if they exist
     try {
-      const participantTimeRef = ref(database, `sessions/${sessionId}/videoState/participantTimes/${userId}`);
+      const participantTimeRef = ref(
+        database,
+        `sessions/${sessionId}/videoState/participantTimes/${userId}`
+      );
       const snapshot = await get(participantTimeRef);
       if (snapshot.exists()) {
         await remove(participantTimeRef);
@@ -419,7 +470,7 @@ export async function leaveRealtimeSession(
     } catch (error) {
       console.error("Error removing participant time:", error);
     }
-    
+
     console.log(`User ${userId} left realtime session ${sessionId}`);
   } catch (error) {
     console.error("Error leaving realtime session:", error);
@@ -436,29 +487,31 @@ export async function clearVideo(
 ): Promise<void> {
   try {
     // Update screen state to search
-    await update(ref(database, `sessions/${sessionId}`), { 
-      screen: "search" 
+    await update(ref(database, `sessions/${sessionId}`), {
+      screen: "search",
     });
-    
+
     // Clear the video state
     await update(ref(database, `sessions/${sessionId}/videoState`), {
-      id: ""
+      id: "",
+      events: {},
+      participantTimes: {},
     });
-    
+
     // Add a video change event
     const eventsRef = ref(database, `sessions/${sessionId}/videoState/events`);
     const newEventRef = push(eventsRef);
-    
+
     const event: VideoChangeEvent = {
-      id: newEventRef.key || '',
+      id: newEventRef.key || "",
       type: "video_change",
       timestamp: Timestamp.now(),
       userId,
-      videoId: ""
+      videoId: "",
     };
-    
+
     await set(newEventRef, event);
-    
+
     console.log(`Cleared video in realtime database for session ${sessionId}`);
   } catch (error) {
     console.error("Error clearing video in realtime database:", error);
@@ -493,25 +546,30 @@ export async function cleanupOldEvents(
   try {
     const eventsRef = ref(database, `sessions/${sessionId}/videoState/events`);
     const snapshot = await get(eventsRef);
-    
+
     if (!snapshot.exists()) return;
-    
+
     const events = snapshot.val();
     const currentTime = Timestamp.now().seconds;
     const deletePromises: Promise<void>[] = [];
-    
+
     Object.entries(events).forEach(([key, eventData]: [string, any]) => {
       const eventTime = eventData.timestamp?.seconds;
-      
-      if (eventTime && (currentTime - eventTime) > olderThanSeconds) {
-        const eventRef = ref(database, `sessions/${sessionId}/videoState/events/${key}`);
+
+      if (eventTime && currentTime - eventTime > olderThanSeconds) {
+        const eventRef = ref(
+          database,
+          `sessions/${sessionId}/videoState/events/${key}`
+        );
         deletePromises.push(remove(eventRef));
       }
     });
-    
+
     if (deletePromises.length > 0) {
       await Promise.all(deletePromises);
-      console.log(`Cleaned up ${deletePromises.length} old events from session ${sessionId}`);
+      console.log(
+        `Cleaned up ${deletePromises.length} old events from session ${sessionId}`
+      );
     }
   } catch (error) {
     console.error("Error cleaning up old events:", error);
@@ -521,9 +579,7 @@ export async function cleanupOldEvents(
 /**
  * Remove current session from realtime DB when it is removed
  */
-export async function removeRealtimeSession(
-  sessionId: string
-): Promise<void> {
+export async function removeRealtimeSession(sessionId: string): Promise<void> {
   try {
     const sessionRef = ref(database, `sessions/${sessionId}`);
     await remove(sessionRef);
@@ -539,13 +595,13 @@ export async function removeRealtimeSession(
  */
 export async function getVideoState(
   sessionId: string
-): Promise<SessionRealtime['videoState'] | null> {
+): Promise<SessionRealtime["videoState"] | null> {
   try {
     const videoStateRef = ref(database, `sessions/${sessionId}/videoState`);
     const snapshot = await get(videoStateRef);
-    
+
     if (snapshot.exists()) {
-      return snapshot.val() as SessionRealtime['videoState'];
+      return snapshot.val() as SessionRealtime["videoState"];
     }
     return null;
   } catch (error) {
@@ -558,46 +614,55 @@ export async function getVideoState(
  * Automatically mark participant inactive if disconnected for too long
  */
 export async function markInactiveParticipants(
-  sessionId: string, 
+  sessionId: string,
   timeoutSeconds: number = 30
 ): Promise<void> {
   try {
     const participantsRef = ref(database, `sessions/${sessionId}/participants`);
-    const videoStateRef = ref(database, `sessions/${sessionId}/videoState/participantTimes`);
-    
+    const videoStateRef = ref(
+      database,
+      `sessions/${sessionId}/videoState/participantTimes`
+    );
+
     // Get current participants and their times
     const [participantsSnapshot, timesSnapshot] = await Promise.all([
       get(participantsRef),
-      get(videoStateRef)
+      get(videoStateRef),
     ]);
-    
+
     if (!participantsSnapshot.exists()) return;
-    
+
     const participants = participantsSnapshot.val();
     const participantTimes = timesSnapshot.exists() ? timesSnapshot.val() : {};
     const currentTime = Timestamp.now();
-    const updates: {[path: string]: any} = {};
-    
+    const updates: { [path: string]: any } = {};
+
     // Check each active participant
     Object.entries(participants).forEach(([userId, data]: [string, any]) => {
       if (data.active === true) {
         const lastActiveTime = participantTimes[userId]?.lastActive;
-        
+
         if (lastActiveTime) {
           // Convert Firebase timestamp to seconds
-          const lastActiveSeconds = lastActiveTime.seconds !== undefined 
-            ? lastActiveTime.seconds
-            : (lastActiveTime.toDate ? lastActiveTime.toDate().getTime() / 1000 : 0);
-          
+          const lastActiveSeconds =
+            lastActiveTime.seconds !== undefined
+              ? lastActiveTime.seconds
+              : lastActiveTime.toDate
+                ? lastActiveTime.toDate().getTime() / 1000
+                : 0;
+
           // If last active time is older than timeout, mark as inactive
           if (currentTime.seconds - lastActiveSeconds > timeoutSeconds) {
-            updates[`sessions/${sessionId}/participants/${userId}/active`] = false;
-            console.log(`Marked participant ${userId} as inactive due to timeout`);
+            updates[`sessions/${sessionId}/participants/${userId}/active`] =
+              false;
+            console.log(
+              `Marked participant ${userId} as inactive due to timeout`
+            );
           }
         }
       }
     });
-    
+
     // Apply updates if any
     if (Object.keys(updates).length > 0) {
       await update(ref(database), updates);

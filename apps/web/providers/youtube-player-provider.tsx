@@ -1,12 +1,20 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useRef, useState } from "react";
-import { 
-  CaptionTrack, 
-  setCaptionTrack as setYouTubeCaptionTrack, 
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import {
+  CaptionTrack,
+  setCaptionTrack as setYouTubeCaptionTrack,
   initializeCaptions,
-  ensurePlayerSize
+  ensurePlayerSize,
 } from "../lib/youtube";
+import { Video } from "@/types/video";
+import { subscribeToVideoDoc } from "@/services/videos";
 
 // Define YouTube API interfaces
 interface YT {
@@ -85,6 +93,7 @@ export const playbackSpeeds = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
 // Context interface - removed transcript-related properties
 interface YouTubePlayerContextType {
+  video: Partial<Video> | null;
   containerRef: React.RefObject<HTMLDivElement | null>;
   player: YTPlayerInstance | null;
   videoId: string;
@@ -119,7 +128,9 @@ interface YouTubePlayerContextType {
 }
 
 // Create context
-const YouTubePlayerContext = createContext<YouTubePlayerContextType | null>(null);
+const YouTubePlayerContext = createContext<YouTubePlayerContextType | null>(
+  null
+);
 
 export function YouTubePlayerProvider({
   children,
@@ -133,8 +144,8 @@ export function YouTubePlayerProvider({
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [duration, setDuration] = useState<number>(0);
   const [volume, setVolume] = useState<number>(
-    typeof window !== 'undefined' && localStorage.getItem('youtubePlayerVolume') 
-      ? parseInt(localStorage.getItem('youtubePlayerVolume') || '100') 
+    typeof window !== "undefined" && localStorage.getItem("youtubePlayerVolume")
+      ? parseInt(localStorage.getItem("youtubePlayerVolume") || "100")
       : 100
   );
   const [isMuted, setIsMuted] = useState<boolean>(false);
@@ -152,7 +163,8 @@ export function YouTubePlayerProvider({
     currentTrack: null,
   });
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
-  
+  const [video, setVideo] = useState<Partial<Video> | null>(null);
+
   // Hide controls timeout
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -163,7 +175,7 @@ export function YouTubePlayerProvider({
       const captionData = await initializeCaptions(ytPlayer);
       setCaptions(captionData);
     } catch (e) {
-      console.error('Error loading captions module:', e);
+      console.error("Error loading captions module:", e);
     }
   };
 
@@ -203,14 +215,14 @@ export function YouTubePlayerProvider({
           fs: 0, // Disable fullscreen button
           iv_load_policy: 3, // Hide annotations
           cc_load_policy: 1, // Don't force CC on
-          cc_lang_pref: 'en', // Default language preference
+          cc_lang_pref: "en", // Default language preference
         },
         events: {
           onReady: onPlayerReady,
           onStateChange: onPlayerStateChange,
-          onPlaybackQualityChange: function(event: YTPlayerEvent) {
+          onPlaybackQualityChange: function (event: YTPlayerEvent) {
             // Empty handler to prevent errors
-          }
+          },
         },
       });
 
@@ -219,32 +231,35 @@ export function YouTubePlayerProvider({
 
     function onPlayerReady(event: YTPlayerEvent) {
       setDuration(event.target.getDuration());
-      
+
       // Ensure proper iframe sizing for fullscreen
       ensurePlayerSize(event.target);
-      
+
       // Set saved volume
-      const savedVolume = localStorage.getItem('youtubePlayerVolume');
+      const savedVolume = localStorage.getItem("youtubePlayerVolume");
       if (savedVolume !== null) {
         const volumeValue = parseInt(savedVolume);
         event.target.setVolume(volumeValue);
         setVolume(volumeValue);
-        
+
         // Check if it should be muted
-        if (volumeValue === 0 || localStorage.getItem('youtubePlayerMuted') === 'true') {
+        if (
+          volumeValue === 0 ||
+          localStorage.getItem("youtubePlayerMuted") === "true"
+        ) {
           event.target.mute();
           setIsMuted(true);
         }
       }
-      
+
       // Set saved playback speed
-      const savedSpeed = localStorage.getItem('youtubePlayerSpeed');
+      const savedSpeed = localStorage.getItem("youtubePlayerSpeed");
       if (savedSpeed !== null) {
         const speedValue = parseFloat(savedSpeed);
         event.target.setPlaybackRate(speedValue);
         setPlaybackSpeed(speedValue);
       }
-      
+
       // Load captions
       loadCaptions(event.target);
 
@@ -283,6 +298,14 @@ export function YouTubePlayerProvider({
       }
     };
   }, [videoId, height, width]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToVideoDoc(videoId, (videoData) => {
+      setVideo(videoData);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   // Control UI visibility
   useEffect(() => {
@@ -331,16 +354,16 @@ export function YouTubePlayerProvider({
       // Skip keyboard shortcuts if a form element is focused
       const activeElement = document.activeElement;
       const tagName = activeElement?.tagName.toLowerCase();
-      
+
       // Check if any interactive element has focus
       if (
-        tagName === 'input' || 
-        tagName === 'textarea' || 
-        tagName === 'select' || 
-        tagName === 'button' ||
-        activeElement?.hasAttribute('contenteditable') ||
-        activeElement?.getAttribute('role') === 'slider' ||
-        activeElement?.classList.contains('slider') ||
+        tagName === "input" ||
+        tagName === "textarea" ||
+        tagName === "select" ||
+        tagName === "button" ||
+        activeElement?.hasAttribute("contenteditable") ||
+        activeElement?.getAttribute("role") === "slider" ||
+        activeElement?.classList.contains("slider") ||
         // Check for common UI component classes
         activeElement?.closest('[role="dialog"]') ||
         activeElement?.closest('[role="menu"]') ||
@@ -407,14 +430,14 @@ export function YouTubePlayerProvider({
     setVolume(newVolume);
 
     // Save to localStorage
-    localStorage.setItem('youtubePlayerVolume', newVolume.toString());
+    localStorage.setItem("youtubePlayerVolume", newVolume.toString());
 
     if (newVolume === 0) {
       setIsMuted(true);
-      localStorage.setItem('youtubePlayerMuted', 'true');
+      localStorage.setItem("youtubePlayerMuted", "true");
     } else if (isMuted) {
       setIsMuted(false);
-      localStorage.setItem('youtubePlayerMuted', 'false');
+      localStorage.setItem("youtubePlayerMuted", "false");
     }
   };
 
@@ -424,11 +447,11 @@ export function YouTubePlayerProvider({
     if (isMuted) {
       player.unMute();
       setIsMuted(false);
-      localStorage.setItem('youtubePlayerMuted', 'false');
+      localStorage.setItem("youtubePlayerMuted", "false");
     } else {
       player.mute();
       setIsMuted(true);
-      localStorage.setItem('youtubePlayerMuted', 'true');
+      localStorage.setItem("youtubePlayerMuted", "true");
     }
   };
 
@@ -458,49 +481,59 @@ export function YouTubePlayerProvider({
 
   const toggleFullscreen = (): void => {
     if (!containerRef.current) return;
-    
+
     try {
       if (!document.fullscreenElement) {
         // Enter fullscreen
-        containerRef.current.requestFullscreen().then(() => {
-          setIsFullscreen(true);
-          // Ensure player size is updated
-          if (player && player.getIframe) {
-            const iframe = player.getIframe();
-            if (iframe) {
-              iframe.style.width = '100%';
-              iframe.style.height = '100%';
+        containerRef.current
+          .requestFullscreen()
+          .then(() => {
+            setIsFullscreen(true);
+            // Ensure player size is updated
+            if (player && player.getIframe) {
+              const iframe = player.getIframe();
+              if (iframe) {
+                iframe.style.width = "100%";
+                iframe.style.height = "100%";
+              }
             }
-          }
-        }).catch((err) => {
-          console.error(`Error attempting to enable fullscreen: ${err.message}`);
-        });
+          })
+          .catch((err) => {
+            console.error(
+              `Error attempting to enable fullscreen: ${err.message}`
+            );
+          });
       } else {
         // Exit fullscreen
-        document.exitFullscreen().then(() => {
-          setIsFullscreen(false);
-        }).catch((err) => {
-          console.error(`Error attempting to exit fullscreen: ${err.message}`);
-        });
+        document
+          .exitFullscreen()
+          .then(() => {
+            setIsFullscreen(false);
+          })
+          .catch((err) => {
+            console.error(
+              `Error attempting to exit fullscreen: ${err.message}`
+            );
+          });
       }
     } catch (error) {
-      console.error('Fullscreen error:', error);
-      
+      console.error("Fullscreen error:", error);
+
       // Fallback for browsers without fullscreen API
       setIsFullscreen(!isFullscreen);
       if (containerRef.current) {
-        containerRef.current.classList.toggle('youtube-player-fullscreen');
+        containerRef.current.classList.toggle("youtube-player-fullscreen");
       }
     }
   };
 
   const formatTime = (seconds: number): string => {
     if (isNaN(seconds)) return "0:00";
-      
+
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     const remainingSeconds = Math.floor(seconds % 60);
-    
+
     if (hours > 0) {
       return `${hours}:${minutes < 10 ? "0" : ""}${minutes}:${remainingSeconds < 10 ? "0" : ""}${remainingSeconds}`;
     } else {
@@ -511,48 +544,48 @@ export function YouTubePlayerProvider({
   // Captions controls
   const toggleCaptions = (): void => {
     if (!player) return;
-    
+
     try {
       const newState = !captions.enabled;
-      
+
       if (newState && captions.tracks.length > 0) {
         // Enable captions with current track or first available
         const trackToUse = captions.currentTrack || captions.tracks[0]!.vssId;
         setYouTubeCaptionTrack(player, trackToUse, true);
-        setCaptions(prev => ({ 
-          ...prev, 
+        setCaptions((prev) => ({
+          ...prev,
           enabled: true,
-          currentTrack: trackToUse 
+          currentTrack: trackToUse,
         }));
       } else {
         // Disable captions
         setYouTubeCaptionTrack(player, null, false);
-        setCaptions(prev => ({ ...prev, enabled: false }));
+        setCaptions((prev) => ({ ...prev, enabled: false }));
       }
-      
+
       // Save preference
-      localStorage.setItem('captionsEnabled', newState.toString());
+      localStorage.setItem("captionsEnabled", newState.toString());
     } catch (e) {
-      console.error('Error toggling captions:', e);
+      console.error("Error toggling captions:", e);
     }
   };
 
   const setCaptionTrack = (trackId: string | null): void => {
     if (!player || !trackId) return;
-    
+
     try {
       setYouTubeCaptionTrack(player, trackId, true);
-      setCaptions(prev => ({ 
-        ...prev, 
+      setCaptions((prev) => ({
+        ...prev,
         enabled: true,
-        currentTrack: trackId 
+        currentTrack: trackId,
       }));
-      
+
       // Save preference
-      localStorage.setItem('captionsTrack', trackId);
-      localStorage.setItem('captionsEnabled', 'true');
+      localStorage.setItem("captionsTrack", trackId);
+      localStorage.setItem("captionsEnabled", "true");
     } catch (e) {
-      console.error('Error setting caption track:', e);
+      console.error("Error setting caption track:", e);
     }
   };
 
@@ -564,7 +597,7 @@ export function YouTubePlayerProvider({
     setPlaybackSpeed(speed);
 
     // Save preference
-    localStorage.setItem('youtubePlayerSpeed', speed.toString());
+    localStorage.setItem("youtubePlayerSpeed", speed.toString());
   };
 
   // Add a direct seekTo method
@@ -578,7 +611,8 @@ export function YouTubePlayerProvider({
   const seekPercentage = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   const value = {
-    containerRef, 
+    video,
+    containerRef,
     player,
     videoId,
     isPlaying,
@@ -618,7 +652,9 @@ export function YouTubePlayerProvider({
 export function useYouTubePlayer() {
   const context = useContext(YouTubePlayerContext);
   if (!context) {
-    throw new Error("useYouTubePlayer must be used within a YouTubePlayerProvider");
+    throw new Error(
+      "useYouTubePlayer must be used within a YouTubePlayerProvider"
+    );
   }
   return context;
 }

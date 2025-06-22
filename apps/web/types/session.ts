@@ -66,7 +66,21 @@ export interface VideoChangeEvent extends SessionEvent {
   originator?: string; // ID of the user who initiated the event
 }
 
-export type VideoEvent = PlayEvent | PauseEvent | SeekEvent | VideoChangeEvent;
+export interface PopupEvent extends SessionEvent {
+  type: "popup";
+  userName: string;
+  emoji:
+    | "like"
+    | "dislike"
+    | "heart"
+    | "heart-broken"
+    | "laugh"
+    | "sad"
+    | "angry";
+  originator?: string; // ID of the user who initiated the event
+}
+
+export type VideoEvent = PlayEvent | PauseEvent | SeekEvent | VideoChangeEvent | PopupEvent;
 
 // Session information for the realtime db
 export interface SessionRealtime {

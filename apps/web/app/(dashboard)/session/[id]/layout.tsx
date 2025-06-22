@@ -2,6 +2,7 @@
 
 import { subscribeToSession } from "@/services/realtime/sessions";
 import { SessionRealtime } from "@/types/session";
+import { SessionProvider } from "@/components/session/session-context";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
 import { LoadingScreen } from "../../components/LoadingScreen";
@@ -39,5 +40,5 @@ export default function SessionIdLayout({ children }: LayoutProps) {
     return <LoadingScreen />;
   }
 
-  return <>{children}</>;
+  return <SessionProvider session={session}>{children}</SessionProvider>;
 }

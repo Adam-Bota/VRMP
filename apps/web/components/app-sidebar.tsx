@@ -195,14 +195,22 @@ export function AppSidebar({
             },
             {
               icon: <History className="size-4" />,
-              url: "/history",
+              // url: "/history",
               title: "History",
+              items: doc?.videos?.map((video) => ({
+                title: video,
+                url: `/yt/${video}`,
+              })),
             },
-            {
-              icon: <ThumbsUp className="size-4" />,
-              url: "/likedVideos",
-              title: "Liked Videos",
-            },
+            // {
+            //   icon: <ThumbsUp className="size-4" />,
+            //   url: "/likedVideos",
+            //   title: "Liked Videos",
+            //   items: doc?.videos?.map((video) => ({
+            //     title: video,
+            //     url: `/yt/${video}`,
+            //   })),
+            // },
           ]}
         />
       </SidebarContent>
@@ -225,7 +233,7 @@ export function AppSidebar({
                 </SidebarMenuButton>
               </SidebarMenuItem>
 
-              {isInVideo && (
+              {isInVideo && doc?.activeSession?.moderator === user?.uid && (
                 <SidebarMenuItem>
                   <SidebarMenuButton
                     size="sm"

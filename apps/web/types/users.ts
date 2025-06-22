@@ -9,4 +9,5 @@ export interface User {
   lastLoginAt: Date | null;
   role?: string;
   activeSession: Session | null;
+  videos?: string[]; // Array of video IDs
 }

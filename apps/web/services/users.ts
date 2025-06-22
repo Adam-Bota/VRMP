@@ -8,6 +8,7 @@ import {
   updateDoc,
   deleteField,
   onSnapshot,
+  arrayUnion,
 } from "firebase/firestore";
 import { User as FirebaseAuthUser } from "firebase/auth";
 import { Session } from "@/types/session";
@@ -99,8 +100,6 @@ export async function checkUserInSession(
   if (!userId) {
     throw new Error("User ID is required");
   }
-
-  console.log(`Checking if user ${userId} is in session...`);
 
   try {
     const userRef = doc(db, "users", userId);
@@ -232,7 +231,29 @@ export async function clearUserCurrentVideo(userId: string): Promise<void> {
   }
 }
 
-export async function setUserCurrentVideo(userId: string, videoId: string): Promise<void> {
+// export async function setUserCurrentVideo(userId: string, videoId: string): Promise<void> {
+//   if (!userId) {
+//     throw new Error("User ID is required");
+//   }
+
+//   try {
+//     const userRef = doc(db, "users", userId);
+
+//     await updateDoc(userRef, {
+//       activeSession: {
+//         currentVideo: videoId,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Error setting user current video:", error);
+//     throw new Error("Failed to set user current video");
+//   }
+// }
+
+export async function setUserVideo(
+  userId: string,
+  videoId: string
+): Promise<void> {
   if (!userId) {
     throw new Error("User ID is required");
   }
@@ -241,12 +262,10 @@ export async function setUserCurrentVideo(userId: string, videoId: string): Prom
     const userRef = doc(db, "users", userId);
 
     await updateDoc(userRef, {
-      activeSession: {
-        currentVideo: videoId,
-      },
+      videos: arrayUnion(videoId),
     });
   } catch (error) {
-    console.error("Error setting user current video:", error);
-    throw new Error("Failed to set user current video");
+    console.error("Error setting user video:", error);
+    throw new Error("Failed to set user video");
   }
 }
