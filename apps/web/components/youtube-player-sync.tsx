@@ -154,7 +154,6 @@ export async function sendPopupEvent(
   emoji: PopupEvent["emoji"]
 ): Promise<void> {
   try {
-
     await addVideoEvent(sessionId, userId, "popup", Date.now(), 0, {
       userName,
       emoji,
@@ -214,6 +213,7 @@ export function YouTubePlayerSync({
     useYouTubePlayer();
 
   const [videoEvents, setVideoEvents] = useState<VideoEvent[]>([]);
+  const [screen, setScreen] = useState<"yt" | "search">("yt");
   const lastEventRef = useRef<VideoEvent | null>(null);
   const lastUserActionRef = useRef<{ type: string; time: number } | null>(null);
   const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -229,6 +229,7 @@ export function YouTubePlayerSync({
       lastActive: Timestamp;
     };
   }>({});
+  
 
   // Store current player state in refs to avoid dependencies in useEffect
   const playerRef = useRef(player);
@@ -242,7 +243,6 @@ export function YouTubePlayerSync({
 
   useEffect(() => {
     isPlayingRef.current = isPlaying;
-    console.log(`Player is now ${isPlaying ? "playing" : "paused"}`);
   }, [isPlaying]);
 
   useEffect(() => {
@@ -254,18 +254,10 @@ export function YouTubePlayerSync({
   const debouncedUpdateTime = useRef(
     debounce(updateParticipantTime, 5000)
   ).current; // When component mounts or videoId/sessionId changes, set up DB listeners
+
+  // Video events subscription
   useEffect(() => {
     if (!sessionId) return;
-
-    // Prevent multiple setups for the same session/video combo
-    const setupKey = `${sessionId}-${videoId || "no-video"}`;
-    if (currentVideoIdRef.current === setupKey) {
-      return;
-    }
-
-    console.log(
-      `Setting up sync for session ${sessionId} with video ${videoId}`
-    );
 
     // Set the video ID in the database if we have one
     if (videoId && sessionId) {
@@ -277,29 +269,16 @@ export function YouTubePlayerSync({
       });
     }
 
-    // Set initial video reference to prevent re-setup
-    currentVideoIdRef.current = setupKey;
+    // Set initial video reference
+    currentVideoIdRef.current = `${sessionId}-${videoId || "no-video"}`;
 
     // Subscribe to video events from the database
     const unsubscribe = subscribeToVideoEvents(sessionId, (events) => {
       try {
         // Process and normalize events to ensure they have valid timestamps
         const normalizedEvents = events.map(normalizeEvent);
-        console.log(`Received ${normalizedEvents.length} video events`);
         setVideoEvents(normalizedEvents);
-
-        // Also extract participant times from video state to use for initial sync
-        fetchParticipantTimes(sessionId)
-          .then((times) => {
-            if (times) {
-              setParticipantTimes(times);
-            }
-          })
-          .catch((err) =>
-            console.error("Error fetching participant times:", err)
-          );
       } catch (error) {
-        console.error("Error processing video events:", error);
         setSyncErrors((prev) => [...prev, `Error processing events: ${error}`]);
       }
     });
@@ -314,15 +293,11 @@ export function YouTubePlayerSync({
     };
   }, [sessionId, userId, videoId]); // Only essential dependencies
 
-  // Separate effect for time sync interval that depends on player state
+  // participant time
   useEffect(() => {
     if (!player || !sessionId || !userId) return;
 
-    console.log(
-      `Setting up time sync interval for session ${!player || !sessionId || !userId}`
-    );
-
-    // Start interval for regular time updates
+    // Start interval for regular time updates participant time
     syncIntervalRef.current = setInterval(() => {
       if (isPlaying && typeof player.getCurrentTime === "function") {
         try {
@@ -340,46 +315,48 @@ export function YouTubePlayerSync({
         syncIntervalRef.current = null;
       }
     };
-  }, [player, isPlaying, sessionId, userId]); // Sync health monitoring - simple cleanup every 30 seconds
-  useEffect(() => {
-    if (!player || !sessionId || !userId) return;
+  }, [player, isPlaying, sessionId, userId]);
 
-    const healthCheckInterval = setInterval(() => {
-      try {
-        // Reset stale action tracking every 30 seconds
-        const lastAction = lastUserActionRef.current;
-        const timeSinceLastAction = lastAction
-          ? Date.now() - lastAction.time
-          : Infinity;
+  // // Sync health monitoring - simple cleanup every 30 seconds
+  // useEffect(() => {
+  //   if (!player || !sessionId || !userId) return;
 
-        if (timeSinceLastAction > 30000) {
-          console.log("Health check: Resetting stale action tracking");
-          lastUserActionRef.current = null;
-          isHandlingRemoteEventRef.current = false;
-        }
-      } catch (error) {
-        console.warn("Health check failed:", error);
-        isHandlingRemoteEventRef.current = false;
-      }
-    }, 30000); // Check every 30 seconds
+  //   const healthCheckInterval = setInterval(() => {
+  //     try {
+  //       // Reset stale action tracking every 30 seconds
+  //       const lastAction = lastUserActionRef.current;
+  //       const timeSinceLastAction = lastAction
+  //         ? Date.now() - lastAction.time
+  //         : Infinity;
 
-    return () => clearInterval(healthCheckInterval);
-  }, [player, sessionId, userId]);
+  //       if (timeSinceLastAction > 30000) {
+  //         console.log("Health check: Resetting stale action tracking");
+  //         lastUserActionRef.current = null;
+  //         isHandlingRemoteEventRef.current = false;
+  //       }
+  //     } catch (error) {
+  //       console.warn("Health check failed:", error);
+  //       isHandlingRemoteEventRef.current = false;
+  //     }
+  //   }, 30000); // Check every 30 seconds
 
-  // When the component mounts or videoId changes, update the user's current video in Firestore
-  useEffect(() => {
-    if (!videoId || !userId || !sessionId) return;
+  //   return () => clearInterval(healthCheckInterval);
+  // }, [player, sessionId, userId]);
 
-    // Clean up when component unmounts or videoId changes
-    return () => {
-      // // Only clear if we're unmounting (not if videoId is just changing)
-      // if (typeof window !== 'undefined' && window.location.pathname !== `/${sessionId}/yt`) {
-      //   clearUserCurrentVideo(userId)
-      //     .catch(error => console.error("Error clearing user's current video:", error));
-      // }
-    };
-  }, [sessionId, userId, videoId]); // Process incoming events from other users
- 
+  // useEffect(() => {
+  //   if (!userId || !sessionId) return;
+
+  //   if (videoId === "") {
+
+  //   }
+
+  //   return () => {
+
+  //   };
+  // }, [screen]);
+  console.log(videoEvents.length, "video o to process");
+
+  // Sync video events with player state
   useEffect(() => {
     const currentPlayer = playerRef.current;
     const currentIsPlaying = isPlayingRef.current;
@@ -387,12 +364,13 @@ export function YouTubePlayerSync({
 
     if (!currentPlayer || !videoEvents.length || !sessionId) return;
 
-    // Check if player methods are available before proceeding
-    if (typeof currentPlayer.getCurrentTime !== "function") {
-      console.warn("Player not ready for sync operations");
-      return;
-    }
+    console.log(videoEvents.length, "video events to process");
 
+    // Check if player methods are available before proceeding
+    // if (typeof currentPlayer.getCurrentTime !== "function") {
+    //   console.warn("Player not ready for sync operations");
+    //   return;
+    // }
 
     try {
       // Filter out events that originated from this user
@@ -420,6 +398,7 @@ export function YouTubePlayerSync({
 
       const latestExternalEvent = sortedEvents[0];
 
+      console.error(`Latest external event: ${latestExternalEvent}`);
       if (!latestExternalEvent) return;
 
       // Skip if we've already processed this exact event
@@ -430,7 +409,7 @@ export function YouTubePlayerSync({
       // Store this event as processed
       lastEventRef.current = latestExternalEvent;
 
-      const currentPlayerTime = currentPlayer.getCurrentTime();
+      const currentPlayerTime = currentTime;
       const eventCurrentTime =
         "currentTime" in latestExternalEvent
           ? latestExternalEvent.currentTime
@@ -446,15 +425,6 @@ export function YouTubePlayerSync({
       const timeDifference = Math.abs(
         currentPlayerTime - compensatedTargetTime
       );
-
-      console.log(
-        `Sync: Received ${latestExternalEvent.type} event from ${latestExternalEvent.userId}`
-      );
-      if (timeCompensation > 0) {
-        console.log(
-          `Time compensation applied: ${eventCurrentTime} → ${compensatedTargetTime}`
-        );
-      }
 
       // Mark that we're handling a remote event to avoid feedback loops
       isHandlingRemoteEventRef.current = true;
@@ -633,7 +603,9 @@ export function YouTubePlayerSync({
         isHandlingRemoteEventRef.current = false;
       }, 500);
     }
-  }, [videoEvents, sessionId, userId]); // Only essential dependencies  // Send local player state changes to db
+  }, [videoEvents, sessionId, userId, playerRef.current]);
+
+  // Send local player state changes to db
   useEffect(() => {
     const currentPlayer = playerRef.current;
     if (!currentPlayer || !sessionId || !userId) return;
@@ -831,8 +803,9 @@ export function YouTubePlayerSync({
         clearTimeout(seekDetectionTimeout);
       }
     };
-  }, [sessionId, userId]);
+  }, [sessionId, userId, playerRef.current]);
 
+  // Sync Participant times
   useEffect(() => {
     const currentPlayer = playerRef.current;
     if (
@@ -921,7 +894,14 @@ export function YouTubePlayerSync({
       console.error("Error during initial player sync:", error);
       hasInitialSyncRef.current = true; // Prevent trying again
     }
-  }, [participantTimes, sessionId, userId, videoId]); // Removed player dependency
+  }, [
+    participantTimes,
+    sessionId,
+    userId,
+    videoId,
+    playerRef.current,
+    hasInitialSyncRef.current,
+  ]); // Removed player dependency
 
   // If there are sync errors, we could show them for debugging
   if (syncErrors.length > 0 && process.env.NODE_ENV === "development") {
@@ -939,25 +919,4 @@ export function YouTubePlayerSync({
 
   // This is a UI-less component for production
   return null;
-}
-
-// Utility function to fetch participant times from the database
-async function fetchParticipantTimes(sessionId: string): Promise<{
-  [userId: string]: { currentTime: number; lastActive: Timestamp };
-} | null> {
-  if (!sessionId) return null;
-
-  try {
-    // Import only when needed to avoid issues with circular dependencies
-    const { getVideoState } = await import("@/services/realtime/sessions");
-    const videoState = await getVideoState(sessionId);
-
-    if (videoState?.participantTimes) {
-      return videoState.participantTimes;
-    }
-    return null;
-  } catch (error) {
-    console.error("Error fetching participant times:", error);
-    return null;
-  }
 }

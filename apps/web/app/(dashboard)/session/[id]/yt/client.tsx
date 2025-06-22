@@ -57,6 +57,7 @@ export default function Client({
           <div className="h-full w-full [&> div]:w-full [&>div]:h-full">
             <YouTubePlayer
               videoId={videoId}
+              sessionId={sessionId}
               height={"100%"}
             />
             {/* Pass proper userId instead of videoId */}

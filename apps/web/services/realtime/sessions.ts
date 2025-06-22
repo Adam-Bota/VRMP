@@ -111,14 +111,14 @@ export async function addVideoEvent(
     const videoStateRef = ref(database, `sessions/${sessionId}/videoState`);
     const snapshot = await get(videoStateRef);
 
-    if (!snapshot.exists()) {
-      // Initialize video state if it doesn't exist
-      await update(videoStateRef, {
-        id: "", // This will be set when a video is selected
-        events: [],
-        participantTimes: {},
-      });
-    }
+    // if (!snapshot.exists()) {
+    //   // Initialize video state if it doesn't exist
+    //   await update(videoStateRef, {
+    //     id: "", // This will be set when a video is selected
+    //     events: [],
+    //     participantTimes: {},
+    //   });
+    // }
 
     // Add the new event
     const eventsRef = ref(database, `sessions/${sessionId}/videoState/events`);
@@ -158,7 +158,6 @@ export async function addVideoEvent(
       };
     }
 
-    console.log("Setting video event:", event);
     await set(newEventRef, event);
 
     // Update participant time

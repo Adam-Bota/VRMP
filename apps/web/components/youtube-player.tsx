@@ -52,6 +52,7 @@ import { sendPopupEvent } from "./youtube-player-sync";
 // Component props interface
 interface YouTubePlayerProps {
   videoId: string;
+  sessionId: string; 
   height?: number | string;
   width?: number | string;
 }
@@ -59,6 +60,7 @@ interface YouTubePlayerProps {
 // Main player component (no longer wraps with provider)
 export default function YouTubePlayer({
   videoId,
+  sessionId,
   height = 400,
   width = "100%",
 }: YouTubePlayerProps) {
@@ -138,274 +140,277 @@ export default function YouTubePlayer({
       await unlikeVideo(videoId, userId);
     } else {
       await likeVideo(videoId, userId);
+      // Send popup event for like
+      await sendPopupEvent(sessionId, userId, userName, "like");
     }
   };
 
   const handleDislike = async () => {
     if (!user) return;
-    // Update video dislikes in the database
     if (video?.dislikes?.includes(userId)) {
       await undislikeVideo(videoId, userId);
     } else {
       await dislikeVideo(videoId, userId);
+      // Send popup event for dislike
+      await sendPopupEvent(sessionId, userId, userName, "dislike");
     }
   };
 
   // Emoji reaction handler
   const handleEmoji = async (emoji: string) => {
     if (!userId || !videoId) return;
-    // sessionId should be passed as a prop or from context
-    const sessionId = window.location.pathname.split("/").includes("session")
-      ? window.location.pathname.split("/")[2]
-      : "";
-    if (!sessionId) return;
     await sendPopupEvent(sessionId, userId, userName, emoji as any);
   };
 
+  // Responsive player container
   return (
     <div
-      style={{ height: typeof height === "number" ? `${height}px` : height }}
+      ref={containerRef}
+      className={
+        `relative w-full max-w-full aspect-video bg-black rounded-lg overflow-hidden ` +
+        (isFullscreen ? "youtube-player-fullscreen" : "")
+      }
+      style={{
+        height: isFullscreen ? "100vh" : height,
+        width: isFullscreen ? "100vw" : width,
+      }}
     >
-      <div
-        ref={containerRef}
-        className="relative w-full rounded-lg overflow-hidden bg-black"
-        style={{ height: "100%" }}
-      >
-        {/* YouTube Embed (hidden but functional) */}
-        <div className="absolute inset-0">
-          <div id={`yt-player-${videoId}`}></div>
-        </div>{" "}
-        {/* Loading indicator */}
-        {isBuffering && (
-          <div className="absolute inset-0 flex items-center justify-center z-10">
-            <div className="rounded-full border-4 border-white border-opacity-30 border-t-white h-12 w-12 animate-spin"></div>
+      {/* YouTube Embed (hidden but functional) */}
+      <div className="absolute inset-0">
+        <div id={`yt-player-${videoId}`}></div>
+      </div>{" "}
+      {/* Loading indicator */}
+      {isBuffering && (
+        <div className="absolute inset-0 flex items-center justify-center z-10">
+          <div className="rounded-full border-4 border-white border-opacity-30 border-t-white h-12 w-12 animate-spin"></div>
+        </div>
+      )}
+      {/* Paused Glass Overlay */}
+      {!isPlaying && !isBuffering && (
+        <div className="absolute inset-0 flex items-center justify-center z-15 bg-[rgba(0,0,0,0.1)] backdrop-blur-md bg-opacity-20">
+          <div
+            className="flex items-center justify-center w-20 h-20 rounded-full bg-[rgba(255,255,255,0.5)] backdrop-blur-lg border border-white border-opacity-30"
+            onClick={togglePlay}
+          >
+            <Play size={32} className="text-white ml-1" />
           </div>
-        )}
-        {/* Paused Glass Overlay */}
-        {!isPlaying && !isBuffering && (
-          <div className="absolute inset-0 flex items-center justify-center z-15 bg-[rgba(0,0,0,0.1)] backdrop-blur-md bg-opacity-20">
-            <div
-              className="flex items-center justify-center w-20 h-20 rounded-full bg-[rgba(255,255,255,0.5)] backdrop-blur-lg border border-white border-opacity-30"
+        </div>
+      )}
+      {/* Controls Container */}
+      <div
+        className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent p-4 transition-opacity duration-300 z-20 ${
+          showControls ? "opacity-100" : "opacity-0"
+        }`}
+      >
+        {/* Progress Bar */}
+        <div className="mb-4">
+          <Slider
+            defaultValue={[0]}
+            value={[seekPercentage]}
+            max={100}
+            step={0.1}
+            onValueChange={handleSeek}
+            orientation="horizontal"
+            className="cursor-pointer"
+          />
+        </div>
+
+        {/* Controls Row */}
+        <div className="flex justify-between items-center">
+          <div className="flex items-center space-x-2">
+            {/* Play/Pause */}
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={togglePlay}
+              className="text-white hover:bg-white hover:bg-opacity-20"
             >
-              <Play size={32} className="text-white ml-1" />
+              {isPlaying ? <Pause size={20} /> : <Play size={20} />}
+            </Button>
+
+            {/* Skip Back */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={skipBackward}
+              className="text-white hover:bg-white hover:bg-opacity-20 hidden sm:flex"
+            >
+              <SkipBack size={20} />
+            </Button>
+
+            {/* Skip Forward */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={skipForward}
+              className="text-white hover:bg-white hover:bg-opacity-20 hidden sm:flex"
+            >
+              <SkipForward size={20} />
+            </Button>
+
+            {/* Volume Control */}
+            <div className="flex items-center">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={toggleMute}
+                className="text-white hover:bg-white hover:bg-opacity-20"
+              >
+                {isMuted || volume === 0 ? (
+                  <VolumeX size={20} />
+                ) : (
+                  <Volume2 size={20} />
+                )}
+              </Button>
+              <div className="w-20 hidden md:block">
+                <Slider
+                  defaultValue={[100]}
+                  value={[isMuted ? 0 : volume]}
+                  max={100}
+                  step={1}
+                  onValueChange={(value: number[]) =>
+                    adjustVolume(value[0] || 0)
+                  }
+                  className="cursor-pointer"
+                />
+              </div>
+            </div>
+
+            {/* Time Display */}
+            <div className="text-white text-sm hidden sm:block">
+              {formatTime(currentTime)} / {formatTime(duration)}
             </div>
           </div>
-        )}
-        {/* Controls Container */}
-        <div
-          className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent p-4 transition-opacity duration-300 z-20 ${
-            showControls ? "opacity-100" : "opacity-0"
-          }`}
-        >
-          {/* Progress Bar */}
-          <div className="mb-4">
-            <Slider
-              defaultValue={[0]}
-              value={[seekPercentage]}
-              max={100}
-              step={0.1}
-              onValueChange={handleSeek}
-              orientation="horizontal"
-              className="cursor-pointer"
-            />
-          </div>
 
-          {/* Controls Row */}
-          <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-2">
-              {/* Play/Pause */}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={togglePlay}
-                className="text-white hover:bg-white hover:bg-opacity-20"
-              >
-                {isPlaying ? <Pause size={20} /> : <Play size={20} />}
-              </Button>
+          <div className="flex items-center space-x-2">
+            {/* Like and Dislike */}
+            <Button
+              variant="ghost"
+              // size="icon"
+              className={cn(
+                video?.likes?.includes(userId)
+                  ? "text-primary hover:bg-primary"
+                  : "text-white hover:bg-white",
+                "hover:bg-opacity-20"
+              )}
+              onClick={handleLike}
+            >
+              <span className="sr-only">Like</span>
+              <ThumbsUp size={20} />
+              <span className="text-sm">{video?.likes?.length || 0}</span>
+            </Button>
 
-              {/* Skip Back */}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={skipBackward}
-                className="text-white hover:bg-white hover:bg-opacity-20"
-              >
-                <SkipBack size={20} />
-              </Button>
+            <Button
+              variant="ghost"
+              // size="icon"
+              className={cn(
+                video?.dislikes?.includes(userId)
+                  ? "text-destructive hover:bg-destructive"
+                  : "text-white hover:bg-white",
+                "hover:bg-opacity-20"
+              )}
+              onClick={handleDislike}
+            >
+              <span className="sr-only">Dislike</span>
+              <ThumbsDown size={20} />
+              <span className="text-sm">{video?.dislikes?.length || 0}</span>
+            </Button>
 
-              {/* Skip Forward */}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={skipForward}
-                className="text-white hover:bg-white hover:bg-opacity-20"
-              >
-                <SkipForward size={20} />
-              </Button>
-
-              {/* Volume Control */}
-              <div className="flex items-center">
+            {/* Settings Menu */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={toggleMute}
                   className="text-white hover:bg-white hover:bg-opacity-20"
                 >
-                  {isMuted || volume === 0 ? (
-                    <VolumeX size={20} />
-                  ) : (
-                    <Volume2 size={20} />
-                  )}
+                  <Settings size={20} />
                 </Button>
-                <div className="w-20 hidden sm:block">
-                  <Slider
-                    defaultValue={[100]}
-                    value={[isMuted ? 0 : volume]}
-                    max={100}
-                    step={1}
-                    onValueChange={(value: number[]) =>
-                      adjustVolume(value[0] || 0)
-                    }
-                    className="cursor-pointer"
-                  />
-                </div>
-              </div>
-
-              {/* Time Display */}
-              <div className="text-white text-sm">
-                {formatTime(currentTime)} / {formatTime(duration)}
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              {/* Like and Dislike */}
-              <Button
-                variant="ghost"
-                // size="icon"
-                className={cn(
-                  video?.likes?.includes(userId)
-                    ? "text-primary hover:bg-primary"
-                    : "text-white hover:bg-white",
-                  "hover:bg-opacity-20"
-                )}
-                onClick={handleLike}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="bg-zinc-900 text-white border-zinc-800 w-56"
               >
-                <span className="sr-only">Like</span>
-                <ThumbsUp size={20} />
-                <span className="text-sm">{video?.likes?.length || 0}</span>
-              </Button>
+                {/* Playback Speed */}
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger className="cursor-pointer hover:bg-white hover:bg-opacity-20">
+                    Playback Speed: {playbackSpeed}x
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="bg-zinc-900 text-white border-zinc-800">
+                    <DropdownMenuRadioGroup value={playbackSpeed.toString()}>
+                      {playbackSpeeds.map((speed) => (
+                        <DropdownMenuRadioItem
+                          key={speed}
+                          value={speed.toString()}
+                          className="cursor-pointer hover:bg-white hover:bg-opacity-20"
+                          onClick={() => setPlaybackSpeed(speed)}
+                        >
+                          {speed}x
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-              <Button
-                variant="ghost"
-                // size="icon"
-                className={cn(
-                  video?.dislikes?.includes(userId)
-                    ? "text-destructive hover:bg-destructive"
-                    : "text-white hover:bg-white",
-                  "hover:bg-opacity-20"
-                )}
-                onClick={handleDislike}
-              >
-                <span className="sr-only">Dislike</span>
-                <ThumbsDown size={20} />
-                <span className="text-sm">{video?.dislikes?.length || 0}</span>
-              </Button>
+            {/* Fullscreen Toggle */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleFullscreen}
+              className="text-white hover:bg-white hover:bg-opacity-20"
+            >
+              {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+            </Button>
 
-              {/* Settings Menu */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-white hover:bg-white hover:bg-opacity-20"
-                  >
-                    <Settings size={20} />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="end"
-                  className="bg-zinc-900 text-white border-zinc-800 w-56"
+            {/* Emoji Reaction Dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-white hover:bg-white hover:bg-opacity-20"
                 >
-                  {/* Playback Speed */}
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger className="cursor-pointer hover:bg-white hover:bg-opacity-20">
-                      Playback Speed: {playbackSpeed}x
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="bg-zinc-900 text-white border-zinc-800">
-                      <DropdownMenuRadioGroup value={playbackSpeed.toString()}>
-                        {playbackSpeeds.map((speed) => (
-                          <DropdownMenuRadioItem
-                            key={speed}
-                            value={speed.toString()}
-                            className="cursor-pointer hover:bg-white hover:bg-opacity-20"
-                            onClick={() => setPlaybackSpeed(speed)}
-                          >
-                            {speed}x
-                          </DropdownMenuRadioItem>
-                        ))}
-                      </DropdownMenuRadioGroup>
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              {/* Fullscreen Toggle */}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={toggleFullscreen}
-                className="text-white hover:bg-white hover:bg-opacity-20"
+                  <Smile size={20} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="bg-zinc-900 text-white border-zinc-800 w-40"
               >
-                {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
-              </Button>
-
-              {/* Emoji Reaction Dropdown */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-white hover:bg-white hover:bg-opacity-20"
-                  >
-                    <Smile size={20} />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="end"
-                  className="bg-zinc-900 text-white border-zinc-800 w-40"
-                >
-                  <DropdownMenuItem onClick={() => handleEmoji("like")}>
-                    {" "}
-                    <ThumbsUp className="text-blue-500" size={18} /> Like{" "}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleEmoji("dislike")}>
-                    {" "}
-                    <ThumbsDown className="text-gray-500" size={18} /> Dislike{" "}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleEmoji("heart")}>
-                    {" "}
-                    <Heart className="text-pink-500" size={18} /> Heart{" "}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleEmoji("heart-broken")}>
-                    {" "}
-                    <HeartCrack className="text-rose-500" size={18} /> Heart Broken{" "}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleEmoji("laugh")}>
-                    {" "}
-                    <Laugh className="text-yellow-400" size={18} /> Laugh{" "}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleEmoji("sad")}>
-                    {" "}
-                    <Frown className="text-blue-400" size={18} /> Sad{" "}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleEmoji("angry")}>
-                    {" "}
-                    <Angry className="text-red-600" size={18} /> Angry{" "}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+                <DropdownMenuItem onClick={() => handleEmoji("like")}>
+                  {" "}
+                  <ThumbsUp className="text-blue-500" size={18} /> Like{" "}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleEmoji("dislike")}>
+                  {" "}
+                  <ThumbsDown className="text-gray-500" size={18} />{" "}
+                  Dislike{" "}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleEmoji("heart")}>
+                  {" "}
+                  <Heart className="text-pink-500" size={18} /> Heart{" "}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleEmoji("heart-broken")}>
+                  {" "}
+                  <HeartCrack className="text-rose-500" size={18} /> Heart
+                  Broken{" "}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleEmoji("laugh")}>
+                  {" "}
+                  <Laugh className="text-yellow-400" size={18} /> Laugh{" "}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleEmoji("sad")}>
+                  {" "}
+                  <Frown className="text-blue-400" size={18} /> Sad{" "}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleEmoji("angry")}>
+                  {" "}
+                  <Angry className="text-red-600" size={18} /> Angry{" "}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </div>
