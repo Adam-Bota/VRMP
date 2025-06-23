@@ -13,8 +13,5 @@ export default async function VideoPage({
   const { id: sessionId } = await params;
   const { v } = await searchParams;
 
-  // Get video via server side firebase
-  let video: Partial<Video> | null;
-
   return <Client sessionId={sessionId} videoId={v} />;
 }

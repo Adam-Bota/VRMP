@@ -44,6 +44,49 @@ export async function fetchTrendingVideos(
     return [];
   }
 }
+export async function recommendVideos(
+  videoId?: string,
+  maxResults = 12
+): Promise<YouTubeVideo[]> {
+  // If no videoId provided, fallback to trending
+  if (!videoId) {
+    return fetchTrendingVideos(maxResults);
+  }
+
+  try {
+    // First fetch the original video's tags
+    const detailRes = await fetch(
+      `${BASE_URL}/videos?part=snippet&id=${videoId}&key=${API_KEY}`
+    );
+    if (!detailRes.ok) {
+      throw new Error("Failed to fetch video details for tags");
+    }
+    const detailData = await detailRes.json();
+    const tags: string[] = detailData.items[0]?.snippet.tags || [];
+
+    // If no tags found, fallback to trending
+    if (!tags.length) {
+      return fetchTrendingVideos(maxResults);
+    }
+
+    // Build a search query from the top few tags
+    const query = encodeURIComponent(tags.slice(0, 5).join(" "));
+
+    // Now search using those tags
+    const response = await fetch(
+      `${BASE_URL}/search?part=snippet&q=${query}&type=video&maxResults=${maxResults}&key=${API_KEY}`
+    );
+    if (!response.ok) {
+      throw new Error("Failed to search videos");
+    }
+
+    const data = await response.json();
+    return data.items.map(formatVideoData);
+  } catch (error) {
+    console.error("Error recommending videos:", error);
+    return [];
+  }
+}
 
 export async function searchVideos(
   query: string,

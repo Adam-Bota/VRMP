@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ArrowLeftRight,
   Clapperboard,
   Copy,
   History,
@@ -240,7 +241,7 @@ export function AppSidebar({
                     className="data-[slot=sidebar-menu-button]:!p-1.5 truncate"
                     onClick={handleSearchClick}
                   >
-                    <Search className="mr-2 size-4" />
+                    <ArrowLeftRight className="mr-2 size-4" />
                     Change Video
                   </SidebarMenuButton>
                 </SidebarMenuItem>

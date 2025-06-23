@@ -107,19 +107,7 @@ export async function addVideoEvent(
   popup?: { userName: string; emoji: PopupEvent["emoji"] }
 ): Promise<void> {
   try {
-    // Ensure video state exists
-    const videoStateRef = ref(database, `sessions/${sessionId}/videoState`);
-    const snapshot = await get(videoStateRef);
-
-    // if (!snapshot.exists()) {
-    //   // Initialize video state if it doesn't exist
-    //   await update(videoStateRef, {
-    //     id: "", // This will be set when a video is selected
-    //     events: [],
-    //     participantTimes: {},
-    //   });
-    // }
-
+    
     // Add the new event
     const eventsRef = ref(database, `sessions/${sessionId}/videoState/events`);
     const newEventRef = push(eventsRef);
@@ -159,9 +147,6 @@ export async function addVideoEvent(
     }
 
     await set(newEventRef, event);
-
-    // Update participant time
-    // await updateParticipantTime(sessionId, userId, currentTime);
 
   } catch (error) {
     console.error(`Error adding ${eventType} event:`, error);

@@ -9,6 +9,7 @@ import { useAuth } from "@/components/auth-provider";
 import { setUserVideo } from "@/services/users";
 import { viewedVideo } from "@/services/videos";
 import { Video } from "@/types/video";
+import { useRouter } from "next/navigation";
 
 export default function Client({
   videoId,
@@ -18,6 +19,7 @@ export default function Client({
   sessionId: string;
 }) {
   const { user, doc, isLoading } = useAuth();
+  const router = useRouter();
 
   // Only attempt to render sync component when we have userId
   if (!user) {
@@ -29,23 +31,31 @@ export default function Client({
     if (isLoading || !doc) return;
     (async () => {
       if (!doc.videos?.includes(videoId)) {
-        const maxRetries = 1;
-        let attempt = 0;
-        while (attempt <= maxRetries) {
-          try {
-            await setUserVideo(user.uid, videoId);
-            await viewedVideo(videoId, user.uid);
-            break;
-          } catch (err) {
-            attempt++;
-            if (attempt > maxRetries) {
-              console.error("Failed to record viewed video after retry:", err);
+        // If moderator, set user video else redirect to recommendations
+        if (doc.activeSession?.moderator === user.uid) {
+          const maxRetries = 1;
+          let attempt = 0;
+          while (attempt <= maxRetries) {
+            try {
+              await setUserVideo(user.uid, videoId);
+              await viewedVideo(videoId, user.uid);
+              break;
+            } catch (err) {
+              attempt++;
+              if (attempt > maxRetries) {
+                console.error(
+                  "Failed to record viewed video after retry:",
+                  err
+                );
+              }
             }
           }
+        } else {
+          // If not moderator, redirect to recommendations
+          router.push(`/session/${sessionId}`);
         }
       }
     })();
-    console.log("User video updated:", videoId);
   }, [videoId, isLoading, doc]);
 
   return (
@@ -61,7 +71,11 @@ export default function Client({
               height={"100%"}
             />
             {/* Pass proper userId instead of videoId */}
-            <YouTubePlayerSync sessionId={sessionId} userId={user.uid} />
+            <YouTubePlayerSync
+              isSessionModerator={doc?.activeSession?.moderator === user.uid}
+              sessionId={sessionId}
+              userId={user.uid}
+            />
           </div>
         </div>
       </YouTubePlayerProvider>
