@@ -107,7 +107,6 @@ export async function addVideoEvent(
   popup?: { userName: string; emoji: PopupEvent["emoji"] }
 ): Promise<void> {
   try {
-    
     // Add the new event
     const eventsRef = ref(database, `sessions/${sessionId}/videoState/events`);
     const newEventRef = push(eventsRef);
@@ -147,7 +146,6 @@ export async function addVideoEvent(
     }
 
     await set(newEventRef, event);
-
   } catch (error) {
     console.error(`Error adding ${eventType} event:`, error);
   }
@@ -419,6 +417,55 @@ export function subscribeToScreenState(
       callback(snapshot.val() as SessionRealtime["screen"]);
     } else {
       callback("lobby"); // Default screen
+    }
+  });
+
+  return () => off(screenRef);
+}
+
+/**
+ * Subscribe to screen state changes only
+ */
+export function subscribeToVideoId(
+  sessionId: string,
+  callback: (id: string | "") => void
+): () => void {
+  const screenRef = ref(database, `sessions/${sessionId}/videoState/id`);
+
+  onValue(screenRef, (snapshot) => {
+    if (snapshot.exists()) {
+      callback(snapshot.val() as string);
+    } else {
+      callback(""); // Default to empty string
+    }
+  });
+
+  return () => off(screenRef);
+}
+
+/**
+ * Subscribe to screen state changes only
+ */
+export function subscribeToParticipantTimes(
+  sessionId: string,
+  callback: (participantTimes: {
+    [userId: string]: { currentTime: number; lastActive: Timestamp };
+  }) => void
+): () => void {
+  const screenRef = ref(
+    database,
+    `sessions/${sessionId}/videoState/participantTimes`
+  );
+
+  onValue(screenRef, (snapshot) => {
+    if (snapshot.exists()) {
+      callback(
+        snapshot.val() as {
+          [userId: string]: { currentTime: number; lastActive: Timestamp };
+        }
+      );
+    } else {
+      callback({}); // Default to empty string
     }
   });
 
