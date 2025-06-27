@@ -14,6 +14,7 @@ export default function SessionIdLayout({ children }: LayoutProps) {
   const [session, setSession] = useState<SessionRealtime | null>(null);
   const router = useRouter();
   const pathname = usePathname();
+  const [redirected, setRedirected] = useState(false);
 
   useEffect(() => {
     if (!params.id) return;
@@ -26,14 +27,20 @@ export default function SessionIdLayout({ children }: LayoutProps) {
     return () => {
       unsubscribe();
       setSession(null);
+      setRedirected(false); // Reset redirected when session changes
     };
   }, [params.id]);
 
-  if (session?.videoState?.id && !pathname.includes("yt")) {
-    // Redirect to the video page if a video is set
-    router.push(`/session/${params.id}/yt?v=${session.videoState.id}`);
-    return null; // Prevent rendering children while redirecting
-  }
+  useEffect(() => {
+    if (
+      session?.videoState?.id &&
+      !pathname.includes("yt") &&
+      !redirected
+    ) {
+      setRedirected(true);
+      router.push(`/session/${params.id}/yt?v=${session.videoState.id}`);
+    }
+  }, [session?.videoState?.id, pathname, params.id, router, redirected]);
 
   if (!session) {
     // Optionally, you can handle loading state or show a message

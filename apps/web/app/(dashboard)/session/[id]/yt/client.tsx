@@ -32,7 +32,7 @@ export default function Client({
     (async () => {
       if (!doc.videos?.includes(videoId)) {
         // If moderator, set user video else redirect to recommendations
-        if (doc.activeSession?.moderator === user.uid) {
+        // if (doc.activeSession?.moderator === user.uid) {
           const maxRetries = 1;
           let attempt = 0;
           while (attempt <= maxRetries) {
@@ -50,10 +50,11 @@ export default function Client({
               }
             }
           }
-        } else {
+        // } 
+        // else {
           // If not moderator, redirect to recommendations
-          router.push(`/session/${sessionId}`);
-        }
+          // router.push(`/session/${sessionId}`);
+        // }
       }
     })();
   }, [videoId, isLoading, doc]);
