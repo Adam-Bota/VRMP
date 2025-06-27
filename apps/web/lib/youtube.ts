@@ -25,7 +25,11 @@ export async function fetchTrendingVideos(
     );
 
     if (!response.ok) {
-      throw new Error("Failed to fetch trending videos");
+      console.error(
+        "Trending response not OK:",
+        response.status,
+        response.statusText
+      );
     }
 
     const data = await response.json();
@@ -59,7 +63,12 @@ export async function recommendVideos(
       `${BASE_URL}/videos?part=snippet&id=${videoId}&key=${API_KEY}`
     );
     if (!detailRes.ok) {
-      throw new Error("Failed to fetch video details for tags");
+      // throw new Error("Failed to fetch video details for tags");
+      console.error(
+        "Failed to fetch video details for tags:",
+        detailRes.status,
+        detailRes.statusText
+      );
     }
     const detailData = await detailRes.json();
     const tags: string[] = detailData.items[0]?.snippet.tags || [];
@@ -98,7 +107,11 @@ export async function searchVideos(
     );
 
     if (!response.ok) {
-      throw new Error("Failed to search videos");
+      console.error(
+        "Search response not OK:",
+        response.status,
+        response.statusText
+      );
     }
 
     const data = await response.json();
